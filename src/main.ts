@@ -1,4 +1,5 @@
 import { ErrorMapper } from "utils/ErrorMapper";
+import { Empire } from "core/empire";
 
 declare global {
   /*
@@ -15,11 +16,7 @@ declare global {
     log: any;
   }
 
-  interface CreepMemory {
-    role: string;
-    room: string;
-    working: boolean;
-  }
+
 
   // Syntax for adding proprties to `global` (ex "global.log")
   namespace NodeJS {
@@ -31,13 +28,20 @@ declare global {
 
 // When compiling TS to JS and bundling with rollup, the line numbers and file names in error messages change
 // This utility uses source maps to get the line numbers and file names of the original, TS source code
-export const loop = ErrorMapper.wrapLoop(() => {
-  console.log(`Current game tick is ${Game.time}`);
-
-  // Automatically delete memory of missing creeps
-  for (const name in Memory.creeps) {
-    if (!(name in Game.creeps)) {
-      delete Memory.creeps[name];
-    }
+export const loop =  () => { //ErrorMapper.wrapLoop(() => {
+  if(Game.time%5==0){
+    console.log(`Current game tick is ${Game.time}`);
   }
-});
+
+  const empire = new Empire();
+  empire.init();
+  empire.run();
+  empire.post();
+
+  // // Automatically delete memory of missing creeps
+  // for (const name in Memory.creeps) {
+  //   if (!(name in Game.creeps)) {
+  //     delete Memory.creeps[name];
+  //   }
+  // }
+};
