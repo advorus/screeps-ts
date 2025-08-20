@@ -63,7 +63,7 @@ export class Colony {
             if(!spawn.spawning) {
                 const name = `${role}_${Game.time}`;
                 if(role === 'worker') {
-                    const body = [WORK,CARRY,MOVE,MOVE];
+                    const body = this.workerBodyParts();
                     const memory: WorkerMemory = {role, colony:this.room.name, working:false};
                     const result = spawn.spawnCreep(body,name,{memory});
                     if(result === OK) {
@@ -72,6 +72,16 @@ export class Colony {
                     }
                 }
             }
+        }
+    }
+
+    workerBodyParts(): BodyPartConstant[] {
+        if (this.room.energyCapacityAvailable<350){
+            return [WORK, CARRY, MOVE, MOVE];
+        }
+        else {
+            const num_carry_parts = Math.floor(this.room.energyCapacityAvailable / 100);
+            return Array(num_carry_parts).fill(CARRY).concat([MOVE, MOVE, WORK]);
         }
     }
 
@@ -118,11 +128,11 @@ export class Colony {
                 task.status !== 'DONE'
             );
             if (existingHaulTasks.length >= 1) continue; // Skip if there's already a haul task for this spawn
-            TaskManager.createTask(`HAUL`, spawn, this.room.name, 1); // Priority 1 for hauling to spawn
+            TaskManager.createTask(`HAUL`, spawn, this.room.name, 2); // Priority 1 for hauling to spawn
         }
-        console.log("testing");
+
         const construction_sites = this.room.find(FIND_CONSTRUCTION_SITES);
-        console.log(construction_sites);
+
         for (const site of construction_sites) {
             const existingBuildTasks = Object.values(Memory.tasks).filter(task =>
                 task.type === 'BUILD' &&
@@ -132,7 +142,7 @@ export class Colony {
             );
             if (existingBuildTasks.length >= 1) continue; // Skip if there's already a build task for this site
             console.log(`Creating build task for ${site.id} in colony ${this.room.name}`);
-            TaskManager.createTask(`BUILD`, site, this.room.name);
+            TaskManager.createTask(`BUILD`, site, this.room.name, 1);
         }
     }
 

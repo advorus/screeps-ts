@@ -54,7 +54,7 @@ export class TaskManager {
                 const totalEnergy = assignedHaulerCreeps.reduce((sum, c) => sum + c.store.getUsedCapacity(RESOURCE_ENERGY), 0);
                 if (task.type === 'HAUL' && totalEnergy < Game.getObjectById(task.targetId).store.getFreeCapacity(RESOURCE_ENERGY)) {
                     console.log(`Creating a new haul task for ${task.targetId} in colony ${task.colony} because existing creeps cannot fulfil the energy requirement`);
-                    this.createTask('HAUL', Game.getObjectById(task.targetId) as AnyStructure | Source, task.colony as string, 1);
+                    this.createTask('HAUL', Game.getObjectById(task.targetId) as AnyStructure | Source, task.colony as string, 2);
                 }
                 return; // Return the assigned task ID
             }
