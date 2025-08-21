@@ -37,7 +37,6 @@ declare global {
     }
 
     interface WorkerMemory extends CreepMemory {
-        role?: "worker";
         working?: boolean;
     }
 

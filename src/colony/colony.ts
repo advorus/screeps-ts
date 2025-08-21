@@ -4,6 +4,7 @@ import "utils/roomPosition";
 import "utils/move";
 import { extensionStamp, spawnStamp } from "utils/stamps";
 import { ConstructionManager } from "core/constructionManager";
+import { ColonyVisualizer } from "./colonyVisualiser";
 
 // Colony class to manage a single room
 // This class is responsible for managing tasks, spawning creeps, and running the colony logic
@@ -16,6 +17,7 @@ export class Colony {
     spawns: StructureSpawn[] = [];
     creeps: Creep[] = [];
     towers: StructureTower[] = [];
+    colonyVisualizer?: ColonyVisualizer;
 
     constructor(room: Room) {
         this.room = room;
@@ -74,6 +76,7 @@ export class Colony {
             ConstructionManager.placeConstructionSites(this.room, this.memory.plannedConstructionSites);
         }
 
+        this.colonyVisualizer = new ColonyVisualizer(this);
     }
 
     run() {
@@ -90,6 +93,7 @@ export class Colony {
         }
 
         this.runTowers();
+        this.colonyVisualizer?.run();
     }
 
     spawnCreep(role: string) {
