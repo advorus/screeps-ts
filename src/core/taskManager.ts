@@ -1,4 +1,6 @@
-import { getCreepMemory, getTaskMemory } from "./memory";
+import { Colony } from "colony/colony";
+import { getAllTaskMemory, getCreepMemory, getTaskMemory } from "./memory";
+import { Empire } from "./empire";
 
 export class TaskManager {
     static createTask(type: TaskMemory['type'], target: AnyStructure | Source | ConstructionSite, colony: string, priority:number = 0, role:string|undefined = undefined): string {
@@ -73,6 +75,96 @@ export class TaskManager {
                 }
                 return; // Return the assigned task ID
             }
+        }
+    }
+
+    static createTasks(focus: Colony | Empire) {
+        if (focus instanceof Empire) {
+            for(const colony of focus.colonies) {
+                this.createColonyTasks(colony);
+            }
+        } else {
+            this.createColonyTasks(focus)
+        }
+    }
+
+    static createColonyTasks(colony: Colony) {
+        this.createSourceTasks(colony);
+        if(colony.room.controller) {
+            this.createUpgradeTasks(colony.room.controller);
+        }
+        this.createColonyBuildTasks(colony);
+        this.createSpawnHaulTasks(colony);
+    }
+
+    static createColonyBuildTasks(colony: Colony) {
+        const construction_sites = colony.room.find(FIND_CONSTRUCTION_SITES);
+
+        for (const site of construction_sites) {
+            const existingBuildTasks = Object.values(Memory.tasks).filter(task =>
+                task.type === 'BUILD' &&
+                task.targetId == site.id &&
+                task.colony === colony.room.name &&
+                task.status !== 'DONE'
+            );
+            if (existingBuildTasks.length >= 1) continue; // Skip if there's already a build task for this site
+
+            let priority = TaskManager.getBuildPriority(site);
+            // Check if there is an existing build task of the same type in the colony
+            const existingBuildTaskOfType = Object.values(Memory.tasks).find(task => {
+                if (!task.targetId) return false;
+                else return task.type === 'BUILD' &&
+                task.colony === colony.room.name &&
+                task.status !== 'DONE' &&
+                Game.getObjectById(task.targetId)?.structureType === site.structureType;
+            });
+            // If there is not one, increase the priority
+            if (!existingBuildTaskOfType) {
+                priority += 1;
+            }
+            console.log(`Creating build task for ${site.id} in colony ${colony.room.name} with priority ${priority}`);
+            TaskManager.createTask(`BUILD`, site, colony.room.name, priority);
+        }
+    }
+
+    static createSourceTasks(focus: Colony | Source) {
+        if (focus instanceof Colony) {
+            // for each free tile around the source create a harvest task
+            focus.sources.forEach(source => {
+                const freeTiles = source.pos.getFreeTiles();
+                freeTiles.forEach(tile => {
+                    TaskManager.createTask(`HARVEST`, source, focus.room.name);
+                });
+            });
+        } else {
+            const freeTiles = focus.pos.getFreeTiles();
+            freeTiles.forEach(tile => {
+                TaskManager.createTask(`HARVEST`, focus, focus.room.name);
+            });
+        }
+    }
+
+    static createUpgradeTasks(focus: StructureController){
+        const existingUpgradeTask = Object.values(getAllTaskMemory()).filter(
+            task => task.type === `UPGRADE` && task.targetId === focus.id
+        );
+        if (!existingUpgradeTask) {
+            TaskManager.createTask(`UPGRADE`, focus, focus.room.name);
+        }
+        if( existingUpgradeTask.length<4){
+            TaskManager.createTask(`UPGRADE`, focus, focus.room.name,-5);
+        }
+    }
+
+    static createSpawnHaulTasks(focus: StructureSpawn | Colony){
+        if (focus instanceof Colony) {
+            // Create haul tasks for each spawn in the colony
+            focus.spawns.filter(s=>s.store.getFreeCapacity(RESOURCE_ENERGY) > 0).forEach(spawn => {
+                TaskManager.createTask(`HAUL`, spawn, focus.room.name,10);
+            });
+        } else {
+            // Create a haul task for the spawn
+            TaskManager.createTask(`HAUL`, focus, focus.room.name,10);
         }
     }
 }
