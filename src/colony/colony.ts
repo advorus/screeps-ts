@@ -13,6 +13,7 @@ export class Colony {
     sources: Source[] = [];
     spawns: StructureSpawn[] = [];
     creeps: Creep[] = [];
+    towers: StructureTower[] = [];
 
     constructor(room: Room) {
         this.room = room;
@@ -30,6 +31,13 @@ export class Colony {
             this.memory.spawnIds = this.room.find(FIND_MY_SPAWNS)
             .map(s=>s.id);
         }
+
+        if(!this.memory.towerIds) {
+            this.memory.towerIds = this.room.find(FIND_MY_STRUCTURES, {
+                filter: (s): s is StructureTower => s.structureType === STRUCTURE_TOWER
+            }).map(s => s.id);
+        }
+
         this.sources = this.memory.sourceIds
         .map(id=>Game.getObjectById(id))
         .filter((s):s is Source=>s !== null);
@@ -41,7 +49,9 @@ export class Colony {
         // cache creeps assigned to this colony via memory
         this.creeps = Object.values(Game.creeps).filter(c=>getCreepMemory(c.name).colony === this.room.name);
 
-
+        this.towers = this.memory.towerIds
+        .map(id=>Game.getObjectById(id))
+        .filter((s):s is StructureTower=> s !== null);
     }
 
     run() {
@@ -56,6 +66,8 @@ export class Colony {
                 this.runTask(creep);
             }
         }
+
+        this.runTowers();
     }
 
     spawnCreep(role: string) {
@@ -64,12 +76,16 @@ export class Colony {
                 const name = `${role}_${Game.time}`;
                 if(role === 'worker') {
                     const body = this.workerBodyParts();
-                    const memory: WorkerMemory = {role, colony:this.room.name, working:false};
+                    const memory: CreepMemory = {role, colony:this.room.name};
                     const result = spawn.spawnCreep(body,name,{memory});
                     if(result === OK) {
                         console.log(`Spawning new worker in ${this.room.name}`);
                         return;
                     }
+                }
+                if(role == `miner`){
+                    const body = this.minerBodyParts();
+                    const memory: CreepMemory = {role, colony: this.room.name};
                 }
             }
         }
@@ -80,9 +96,14 @@ export class Colony {
             return [WORK, CARRY, MOVE, MOVE];
         }
         else {
-            const num_carry_parts = Math.floor(this.room.energyCapacityAvailable / 100);
-            return Array(num_carry_parts).fill(CARRY).concat([MOVE, MOVE, WORK]);
+            const num_work_parts = Math.floor(this.room.energyCapacityAvailable / 100);
+            return Array(num_work_parts).fill(WORK).concat([MOVE, MOVE, CARRY]);
         }
+    }
+
+    minerBodyParts(): BodyPartConstant[] {
+        const num_work_parts = Math.floor(this.room.energyCapacityAvailable / 100);
+        return Array(num_work_parts).fill(WORK).concat(MOVE);
     }
 
     createTasks() {
@@ -131,18 +152,66 @@ export class Colony {
             TaskManager.createTask(`HAUL`, spawn, this.room.name, 2); // Priority 1 for hauling to spawn
         }
 
+        this.createBuildingTasks();
+    }
+
+    createBuildingTasks() : void {
         const construction_sites = this.room.find(FIND_CONSTRUCTION_SITES);
 
         for (const site of construction_sites) {
             const existingBuildTasks = Object.values(Memory.tasks).filter(task =>
                 task.type === 'BUILD' &&
-                task.targetId === site.id &&
+                // task.targetId === site.id &&
                 task.colony === this.room.name &&
                 task.status !== 'DONE'
             );
             if (existingBuildTasks.length >= 1) continue; // Skip if there's already a build task for this site
             console.log(`Creating build task for ${site.id} in colony ${this.room.name}`);
             TaskManager.createTask(`BUILD`, site, this.room.name, 1);
+        }
+    }
+
+    placeContainers(): void {
+        /**
+         * Place containers near source for mining, and one near the controller for upgrading
+         * containers will only be placed from RCL 3 onwards
+         */
+        if (!this.room.controller) return;
+        if (this.room.controller?.level < 3) return;
+
+        for (const source of this.sources) {
+            const container = source.pos.findInRange(FIND_STRUCTURES, 1, {
+                filter: (s) => s.structureType === STRUCTURE_CONTAINER
+            })[0];
+
+            if (!container) {
+                const newContainer = source.pos.createConstructionSite(STRUCTURE_CONTAINER);
+                console.log(`Placing container for ${source.id} in colony ${this.room.name}`);
+            }
+        }
+
+        this.placeControllerContainer();
+    }
+
+    placeControllerContainer(): void {
+        /**
+         * places a container near the controller which will be used for upgraders to pick up from
+         * also checks that no container exists before placing one
+         * */
+        if(!this.room.controller) return;
+        if(this.room.controller.level < 3) return; // Only place container if RCL is 3 or higher
+
+        // check whether a container exists within 4 tiles of the controller
+        const existingContainer = this.room.controller.pos.findInRange(FIND_STRUCTURES, 4, {
+            filter: (s) => s.structureType === STRUCTURE_CONTAINER
+        })[0];
+        if(existingContainer) return;
+
+        // if it doesn't then place one
+        const containerPos = this.room.controller.pos.findNearestOpenTile(4, 3, true, true);
+        if (containerPos) {
+            const newContainer = containerPos.createConstructionSite(STRUCTURE_CONTAINER);
+            console.log(`Placing container for controller in colony ${this.room.name}`);
         }
     }
 
@@ -224,10 +293,19 @@ export class Colony {
                 break;
             case 'MINE':
                 if (creep.harvest(target as Source) === ERR_NOT_IN_RANGE) {
-                    creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#fffff'}});
+                    creep.safeMoveTo(target, {reusePath:15, visualizePathStyle: {stroke: '#ffffff'}});
                 }
                 break;
-            }
+        }
 
+    }
+    runTowers() {
+        const towers = this.towers;
+        for (const tower of towers) {
+            const closestHostile = tower.pos.findClosestByRange(FIND_HOSTILE_CREEPS);
+            if (closestHostile) {
+                tower.attack(closestHostile);
+            }
+        }
     }
 }

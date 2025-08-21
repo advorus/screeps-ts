@@ -1,12 +1,12 @@
 import { getCreepMemory, getTaskMemory } from "./memory";
 
 export class TaskManager {
-    static createTask(type: TaskMemory['type'], target: AnyStructure | Source | ConstructionSite, colony: string, priority:number = 0): string {
+    static createTask(type: TaskMemory['type'], target: AnyStructure | Source | ConstructionSite, colony: string, priority:number = 0, role:string|undefined = undefined): string {
         if(!Memory.tasks) {
             Memory.tasks = {};
         }
         const id = `${type}_${Game.time}_${Math.random()}`;
-        Memory.tasks[id] = {id, type, targetId: target.id, status: `PENDING`, colony, priority};
+        Memory.tasks[id] = {id, type, targetId: target.id, status: `PENDING`, colony, priority, role};
         return id;
     }
 
@@ -46,15 +46,15 @@ export class TaskManager {
                 // if the task is a haul task and the energy stored in all creeps assigned to drop off at the target is less than the target's free capacity, create another haul task
 
                 //get a list of all creeps assigned to drop off at the target
-                const assignedHaulerCreeps = Object.values(Game.creeps).filter(c => {
+                const assignedCreeps = Object.values(Game.creeps).filter(c => {
                     const memory = getCreepMemory(c.name);
                     return memory.taskId && getTaskMemory(memory.taskId).targetId === task.targetId;
                 });
                 //sum the amount of energy stored in these hauler creeps
-                const totalEnergy = assignedHaulerCreeps.reduce((sum, c) => sum + c.store.getUsedCapacity(RESOURCE_ENERGY), 0);
-                if (task.type === 'HAUL' && totalEnergy < Game.getObjectById(task.targetId).store.getFreeCapacity(RESOURCE_ENERGY)) {
-                    console.log(`Creating a new haul task for ${task.targetId} in colony ${task.colony} because existing creeps cannot fulfil the energy requirement`);
-                    this.createTask('HAUL', Game.getObjectById(task.targetId) as AnyStructure | Source, task.colony as string, 2);
+                const totalEnergy = assignedCreeps.reduce((sum, c) => sum + c.store.getUsedCapacity(RESOURCE_ENERGY), 0);
+                if ((task.type === 'HAUL' || task.type === "BUILD") && totalEnergy < Game.getObjectById(task.targetId).store.getFreeCapacity(RESOURCE_ENERGY)) {
+                    console.log(`Creating a new ${task.type} task for ${task.targetId} in colony ${task.colony} because existing creeps cannot fulfil the energy requirement`);
+                    this.createTask(task.type, Game.getObjectById(task.targetId) as AnyStructure | Source, task.colony as string, task.priority || 0);
                 }
                 return; // Return the assigned task ID
             }

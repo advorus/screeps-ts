@@ -84,7 +84,8 @@ export class Empire {
             // remove assigned creeps from tasks if the creep is no longer in the game
             if (task.assignedCreep){
                 if(!(task.assignedCreep in Game.creeps)) {
-                    delete Memory.tasks[taskId];
+                    delete task.assignedCreep;
+                    task.status = "PENDING";
                 }
 
             }

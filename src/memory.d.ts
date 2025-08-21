@@ -12,6 +12,7 @@ declare global {
     interface CreepMemory {
         colony?: string;
         taskId?: string;
+        role?: string;
     }
 
     interface ColonyMemory {
@@ -23,6 +24,7 @@ declare global {
         sourceIds?: Id<Source>[];
         creepRoleCounts?: {[role:string]: number};
         taskQueue: string[];
+        towerIds?: Id<StructureTower>[];
     }
 
     interface EmpireMemory {
@@ -39,12 +41,13 @@ declare global {
 
     interface TaskMemory {
         id?: string;
-        type?: 'HARVEST' | "HAUL" | "BUILD" | "UPGRADE" | "MINE";
+        type?: 'HARVEST' | "HAUL" | "BUILD" | "UPGRADE" | "MINE" | "SCOUT";
         targetId?: Id<any>;
         assignedCreep?: string;
         status?: "PENDING" | "IN_PROGRESS" | "DONE";
         colony?: string;
         priority?: number;
+        role?: string;
     }
 
     interface Creep {
