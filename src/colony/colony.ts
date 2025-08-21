@@ -278,15 +278,45 @@ export class Colony {
                 }
                 break;
             case 'UPGRADE':
-                if (creep.store[RESOURCE_ENERGY] === 0) {
-                    task.status = `DONE`;
-                    delete creep.memory.taskId;
+                // if there is an upgrade container in the room, pickup from there and upgrade similar to the fill task
+                if (this.upgradeContainers.length>0){
+                    // if none of the upgrade containers have energy, mark the task as finished
+                    if (this.upgradeContainers.every(c => c.store[RESOURCE_ENERGY] === 0)) {
+                        task.status = `DONE`;
+                        delete creep.memory.taskId;
+                        break;
+                    }
+                    if (creep.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
+                        // mark the creep as working
+                        creep.memory.working = true;
+                    }
+                    if (creep.store.getUsedCapacity(RESOURCE_ENERGY) === 0) {
+                        creep.memory.working = false;
+                    }
+                    if(creep.memory.working){
+                        // upgrade the controller, if not in range move to it
+                        if (creep.upgradeController(target as StructureController) === ERR_NOT_IN_RANGE) {
+                            creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+                        }
+                    }
+                    else {
+                    // filter the list of containers to ones with energy
+                        const container = this.upgradeContainers.filter(s=>s.store[RESOURCE_ENERGY] > 0)[0];
+                        if (creep.withdraw(container, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+                            creep.safeMoveTo(container, {visualizePathStyle: {stroke: '#ffffff'}});
+                        }
+                    }
+                } else{
+                    if (creep.store[RESOURCE_ENERGY] === 0) {
+                        task.status = `DONE`;
+                        delete creep.memory.taskId;
+                        break;
+                    }
+                    if (creep.upgradeController(target as StructureController) === ERR_NOT_IN_RANGE) {
+                        creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+                    }
                     break;
                 }
-                if (creep.upgradeController(target as StructureController) === ERR_NOT_IN_RANGE) {
-                    creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
-                }
-                break;
             case 'BUILD':
                 if (creep.store[RESOURCE_ENERGY] === 0) {
                     task.status = `DONE`;
@@ -326,21 +356,29 @@ export class Colony {
                     break;
                 }
                 if(creep.store[RESOURCE_ENERGY] === 0) {
+                    creep.memory.working = false;
                     // withdraw from the target
-                    if (creep.withdraw(target as AnyStructure, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-                        creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+                }
+                if(creep.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
+                    creep.memory.working = true;
+                }
+                if (creep.memory.working) {
+                    //otherwise fill the nearest in a list of spawns and extensions needing energy by range
+                    const targets = this.room.find(FIND_MY_STRUCTURES, {
+                        filter: (s) => (s.structureType === STRUCTURE_SPAWN || s.structureType === STRUCTURE_EXTENSION) && s.store.getFreeCapacity(RESOURCE_ENERGY) > 0
+                    });
+                    if (targets.length > 0) {
+                        const closest = creep.pos.findClosestByRange(targets);
+                        if (closest) {
+                            if (creep.transfer(closest, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+                                creep.safeMoveTo(closest, {visualizePathStyle: {stroke: '#ffffff'}});
+                            }
+                        }
                     }
                 }
-                //otherwise fill the nearest in a list of spawns and extensions needing energy by range
-                const targets = this.room.find(FIND_MY_STRUCTURES, {
-                    filter: (s) => (s.structureType === STRUCTURE_SPAWN || s.structureType === STRUCTURE_EXTENSION) && s.store.getFreeCapacity(RESOURCE_ENERGY) > 0
-                });
-                if (targets.length > 0) {
-                    const closest = creep.pos.findClosestByRange(targets);
-                    if (closest) {
-                        if (creep.transfer(closest, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-                            creep.safeMoveTo(closest, {visualizePathStyle: {stroke: '#ffffff'}});
-                        }
+                else {
+                    if (creep.withdraw(target as AnyStructure, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+                        creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
                     }
                 }
             case `PICKUP`:

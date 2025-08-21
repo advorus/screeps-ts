@@ -15,6 +15,7 @@ declare global {
         colony?: string;
         taskId?: string;
         role?: string;
+        working?: boolean;
     }
 
     interface ColonyMemory {
