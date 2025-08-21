@@ -26,7 +26,7 @@ declare global {
         taskQueue: string[];
         towerIds?: Id<StructureTower>[];
         lastStampRCL?: number;
-        plannedConstructionSites?: {pos: RoomPosition, structureType: BuildableStructureConstant}[];
+        plannedConstructionSites?: {pos: RoomPosition, structureType: BuildableStructureConstant, priority: number}[];
     }
 
     interface EmpireMemory {

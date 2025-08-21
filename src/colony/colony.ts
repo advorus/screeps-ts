@@ -3,6 +3,7 @@ import { TaskManager } from "core/taskManager";
 import "utils/roomPosition";
 import "utils/move";
 import { extensionStamp, spawnStamp } from "utils/stamps";
+import { ConstructionManager } from "core/constructionManager";
 
 // Colony class to manage a single room
 // This class is responsible for managing tasks, spawning creeps, and running the colony logic
@@ -40,7 +41,7 @@ export class Colony {
         }
 
         if(!this.memory.lastStampRCL){
-            this.memory.lastStampRCL = this.room.controller?.level || 0;
+            this.memory.lastStampRCL = 0;
         }
 
         if(!this.memory.plannedConstructionSites){
@@ -61,6 +62,18 @@ export class Colony {
         this.towers = this.memory.towerIds
         .map(id=>Game.getObjectById(id))
         .filter((s):s is StructureTower=> s !== null);
+
+        if (this.room.controller !== undefined) {
+            if (this.memory.lastStampRCL < this.room.controller.level) {
+                this.placeSpawnStamp();
+                this.memory.lastStampRCL = this.room.controller.level;
+            }
+        }
+
+        if (this.isMissingStructures()){
+            ConstructionManager.placeConstructionSites(this.room, this.memory.plannedConstructionSites);
+        }
+
     }
 
     run() {
@@ -344,9 +357,12 @@ export class Colony {
             const existingSite = this.memory.plannedConstructionSites.find(site => site.pos.isEqualTo(pos) && site.structureType === structureType);
             if(!existingSite) {
                 // Otherwise, we need to create a new site
+                //the site priority should be the distance to the closest spawn, found by iterating over the spawns and taking the minimum
+                const site_priority = Math.min(...this.spawns.map(spawn => spawn.pos.getRangeTo(pos)));
                 this.memory.plannedConstructionSites.push({
                     pos: pos,
-                    structureType: structureType
+                    structureType: structureType,
+                    priority: site_priority
                 });
             }
         }
@@ -375,4 +391,18 @@ export class Colony {
         }
     }
 
+    isMissingStructures(): boolean {
+        for(const structure_constant of Object.keys(CONTROLLER_STRUCTURES) as BuildableStructureConstant[]){
+            if (structure_constant !== STRUCTURE_CONTAINER) {
+                const existing_structures = this.room.find(FIND_MY_STRUCTURES, {filter: (s) => s.structureType === structure_constant});
+                const existing_construction_sites = this.room.find(FIND_CONSTRUCTION_SITES, {filter: (s) => s.structureType === structure_constant});
+                if (existing_structures.length + existing_construction_sites.length < CONTROLLER_STRUCTURES[structure_constant][this.room.controller?.level || 0]) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
 }
+
