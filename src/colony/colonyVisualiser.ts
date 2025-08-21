@@ -70,5 +70,20 @@ export class ColonyVisualizer {
             );
             y++;
         }
+
+        //circle the upgrade container in orange
+        for(const container of this.colony.upgradeContainers) {
+            visual.circle(container.pos, {radius: 0.5, fill: 'orange'});
+        }
+
+        //circle the filler containers in blue
+        for(const container of this.colony.fillerContainers) {
+            visual.circle(container.pos, {radius: 0.5, fill: 'blue'});
+        }
+
+        //circle the storage containers in green
+        for(const container of this.colony.sourceContainers) {
+            visual.circle(container.pos, {radius: 0.5, fill: 'green'});
+        }
     }
 }
