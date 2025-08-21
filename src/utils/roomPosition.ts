@@ -4,6 +4,8 @@ declare global {
     interface RoomPosition {
         getFreeTiles(): RoomPosition[];
         findNearestOpenTile(maxRange?: number, minOpenAdjacent?: number, excludeConstructionSites?: boolean, excludeStructures?: boolean): RoomPosition | null;
+        findClearSpot(stamp: {dx:number, dy:number, structureType: BuildableStructureConstant}[]): RoomPosition | null;
+        canPlaceStamp(stamp: Stamp) : boolean;
     }
 }
 
@@ -66,4 +68,24 @@ RoomPosition.prototype.findNearestOpenTile = function(
         }
     }
     return null;
+}
+
+RoomPosition.prototype.findClearSpot = function(stamp: {dx:number, dy:number, structureType: BuildableStructureConstant}[]): RoomPosition | null {
+    /**
+     *  Finds the nearest clear spot for the given stamp to this room position.
+     */
+    return null;
+}
+
+RoomPosition.prototype.canPlaceStamp = function(stamp: Stamp): boolean {
+    /**
+     * Checks if the given stamp can be placed at this room position.
+     */
+    for (const {dx, dy, structureType} of stamp) {
+        const pos = new RoomPosition(this.x + dx, this.y + dy, this.roomName);
+        if (pos.lookFor(LOOK_TERRAIN)[0] === 'wall') return false; // Can't place on walls
+        if (pos.lookFor(LOOK_CONSTRUCTION_SITES).length > 0) return false; // Can't place on construction sites
+        if (pos.lookFor(LOOK_STRUCTURES).length > 0) return false; // Can't place on structures
+    }
+    return true;
 }

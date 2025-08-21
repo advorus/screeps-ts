@@ -2,6 +2,7 @@ import {getColonyMemory,getCreepMemory, getTaskMemory} from "core/memory";
 import { TaskManager } from "core/taskManager";
 import "utils/roomPosition";
 import "utils/move";
+import { extensionStamp, spawnStamp } from "utils/stamps";
 
 // Colony class to manage a single room
 // This class is responsible for managing tasks, spawning creeps, and running the colony logic
@@ -36,6 +37,14 @@ export class Colony {
             this.memory.towerIds = this.room.find(FIND_MY_STRUCTURES, {
                 filter: (s): s is StructureTower => s.structureType === STRUCTURE_TOWER
             }).map(s => s.id);
+        }
+
+        if(!this.memory.lastStampRCL){
+            this.memory.lastStampRCL = this.room.controller?.level || 0;
+        }
+
+        if(!this.memory.plannedConstructionSites){
+            this.memory.plannedConstructionSites = [];
         }
 
         this.sources = this.memory.sourceIds
@@ -168,6 +177,7 @@ export class Colony {
             if (existingBuildTasks.length >= 1) continue; // Skip if there's already a build task for this site
 
             let priority = TaskManager.getBuildPriority(site);
+            // Check if there is an existing build task of the same type in the colony
             const existingBuildTaskOfType = Object.values(Memory.tasks).find(task => {
                 if (!task.targetId) return false;
                 else return task.type === 'BUILD' &&
@@ -175,6 +185,7 @@ export class Colony {
                 task.status !== 'DONE' &&
                 Game.getObjectById(task.targetId)?.structureType === site.structureType;
             });
+            // If there is not one, increase the priority
             if (!existingBuildTaskOfType) {
                 priority += 1;
             }
@@ -311,6 +322,7 @@ export class Colony {
         }
 
     }
+
     runTowers() {
         const towers = this.towers;
         for (const tower of towers) {
@@ -320,4 +332,38 @@ export class Colony {
             }
         }
     }
+
+    placeStampIntoMemory(anchor: RoomPosition, stamp: {dx:number, dy:number, structureType: BuildableStructureConstant}[]) {
+        /**
+         * Places a stamp into the planned construction sites array.
+         */
+        for (const {dx, dy, structureType} of stamp) {
+            const pos = new RoomPosition(anchor.x + dx, anchor.y + dy, anchor.roomName);
+            pos.createConstructionSite(structureType);
+        }
+    }
+
+    placeSpawnStamp() {
+        /**
+         * this will place the central spawn stamp overfit on the existing spawn (assuming there is only one in the room), and puts the structures
+         * into the memory as building sites which need to be placed. These building sites will then be called
+         * from the list as/when possible based on RCL from the construction manager and placed onto the map.
+         */
+        if(!this.spawns[0]) return;
+        // check if any of the potential anchor points from the current spawn enable the stamp to be placed. if not throw an error
+        const potential_anchors: RoomPosition[] = [];
+        const spawnPos = this.spawns[0].pos;
+        potential_anchors.push(new RoomPosition(spawnPos.x+2, spawnPos.y-1, spawnPos.roomName));
+        potential_anchors.push(new RoomPosition(spawnPos.x-2, spawnPos.y-1, spawnPos.roomName));
+        potential_anchors.push(new RoomPosition(spawnPos.x, spawnPos.y+2, spawnPos.roomName));
+
+        //check each anchor to see if it is at the centre of a free 7x7 block (ignore any structure which fits the stamp)
+        for (const anchor of potential_anchors) {
+            if (anchor.canPlaceStamp(spawnStamp)) {
+                this.placeStampIntoMemory(anchor, spawnStamp);
+                break;
+            }
+        }
+    }
+
 }

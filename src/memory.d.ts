@@ -25,6 +25,8 @@ declare global {
         creepRoleCounts?: {[role:string]: number};
         taskQueue: string[];
         towerIds?: Id<StructureTower>[];
+        lastStampRCL?: number;
+        plannedConstructionSites?: {pos: RoomPosition, structureType: BuildableStructureConstant}[];
     }
 
     interface EmpireMemory {
@@ -53,4 +55,10 @@ declare global {
     interface Creep {
         safeMoveTo(target: RoomPosition | RoomObject, opts?: MoveToOpts): ScreepsReturnCode;
     }
+
+    type Stamp = {
+        dx:number,
+        dy:number,
+        structureType: BuildableStructureConstant
+    }[]
 }
