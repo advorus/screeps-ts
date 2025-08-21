@@ -1,6 +1,8 @@
-import { Colony } from "colony/colony";
-import { getAllTaskMemory, getCreepMemory, getTaskMemory } from "./memory";
+
 import { Empire } from "./empire";
+import { getAllTaskMemory, getCreepMemory, getTaskMemory } from "./memory";
+import { Colony } from "colony/colony";
+// import { Empire } from "./empire";
 
 export class TaskManager {
     static createTask(type: TaskMemory['type'], target: AnyStructure | Source | ConstructionSite, colony: string, priority:number = 0, role:string|undefined = undefined): string {
@@ -78,8 +80,8 @@ export class TaskManager {
         }
     }
 
-    static createTasks(focus: Colony | Empire) {
-        if (focus instanceof Empire) {
+    static createTasks(focus: Colony | EmpireLike) {
+        if ("colonies" in focus) {
             for(const colony of focus.colonies) {
                 this.createColonyTasks(colony);
             }
@@ -88,7 +90,7 @@ export class TaskManager {
         }
     }
 
-    static createColonyTasks(colony: Colony) {
+    static createColonyTasks(colony: ColonyLike) {
         this.createSourceTasks(colony);
         if(colony.room.controller) {
             this.createUpgradeTasks(colony.room.controller);
@@ -97,7 +99,7 @@ export class TaskManager {
         this.createSpawnHaulTasks(colony);
     }
 
-    static createColonyBuildTasks(colony: Colony) {
+    static createColonyBuildTasks(colony: ColonyLike) {
         const construction_sites = colony.room.find(FIND_CONSTRUCTION_SITES);
 
         for (const site of construction_sites) {
@@ -127,8 +129,8 @@ export class TaskManager {
         }
     }
 
-    static createSourceTasks(focus: Colony | Source) {
-        if (focus instanceof Colony) {
+    static createSourceTasks(focus: ColonyLike | Source) {
+        if ("sources" in focus) {
             // for each free tile around the source create a harvest task
             focus.sources.forEach(source => {
                 const freeTiles = source.pos.getFreeTiles();
@@ -156,8 +158,8 @@ export class TaskManager {
         }
     }
 
-    static createSpawnHaulTasks(focus: StructureSpawn | Colony){
-        if (focus instanceof Colony) {
+    static createSpawnHaulTasks(focus: StructureSpawn | ColonyLike){
+        if ("spawns" in focus) {
             // Create haul tasks for each spawn in the colony
             focus.spawns.filter(s=>s.store.getFreeCapacity(RESOURCE_ENERGY) > 0).forEach(spawn => {
                 TaskManager.createTask(`HAUL`, spawn, focus.room.name,10);

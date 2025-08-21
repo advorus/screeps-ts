@@ -1,3 +1,5 @@
+import { Colony } from "colony/colony";
+
 export {};
 
 type CreepRole = 'worker';
@@ -60,4 +62,16 @@ declare global {
         dy:number,
         structureType: BuildableStructureConstant
     }[]
+
+    interface EmpireLike {
+        colonies: any[];
+        memory: EmpireMemory;
+    }
+
+    interface ColonyLike {
+        memory: ColonyMemory;
+        spawns: StructureSpawn[];
+        sources: Source[];
+        room: Room;
+    }
 }

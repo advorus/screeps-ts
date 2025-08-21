@@ -1,5 +1,5 @@
 import {getColonyMemory,getCreepMemory, getTaskMemory} from "core/memory";
-import { TaskManager } from "core/taskManager";
+
 import "utils/roomPosition";
 import "utils/move";
 import { extensionStamp, spawnStamp } from "utils/stamps";
