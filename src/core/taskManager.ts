@@ -76,6 +76,16 @@ export class TaskManager {
                 if( task.type === 'HAUL' && creep.store.getUsedCapacity(RESOURCE_ENERGY) === 0) {
                     continue;
                 }
+                if(task.type === 'BUILD' && creep.store.getUsedCapacity(RESOURCE_ENERGY) === 0) {
+                    continue;
+                }
+                if(task.type === 'PICKUP' && creep.store.getFreeCapacity() === 0) {
+                    continue;
+                }
+                // only miners can pick up mine tasks
+                if(task.type === `MINE` && creep.memory.role !== `miner`) {
+                    continue;
+                }
                 // for now - check if the creep is in the same colony as the task
                 if (getCreepMemory(creep.name).colony !== getTaskMemory(task.id).colony) {
                     continue;
