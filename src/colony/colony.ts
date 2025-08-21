@@ -18,6 +18,10 @@ export class Colony {
     creeps: Creep[] = [];
     towers: StructureTower[] = [];
     colonyVisualizer?: ColonyVisualizer;
+    sourceContainers: StructureContainer[] = [];
+    extensions: StructureExtension[] = [];
+    fillerContainers: StructureContainer[] = [];
+    upgradeContainers: StructureContainer[] = [];
 
     constructor(room: Room) {
         this.room = room;
@@ -42,8 +46,19 @@ export class Colony {
             }).map(s => s.id);
         }
 
+        if(!this.memory.extensionIds) {
+            this.memory.extensionIds = this.room.find(FIND_MY_STRUCTURES, {
+                filter: (s): s is StructureExtension => s.structureType === STRUCTURE_EXTENSION
+            }).map(s => s.id);
+        }
+
+        this.memory.fillerContainerIds ??= [];
+        this.memory.upgradeContainerIds ??= [];
         this.memory.lastStampRCL ??= 0;
         this.memory.plannedConstructionSites ??= [];
+
+        this.setFillerContainerIds();
+        this.setUpgradeContainerIds();
 
         // cache creeps assigned to this colony via memory
         this.creeps = Object.values(Game.creeps).filter(c=>getCreepMemory(c.name).colony === this.room.name);
@@ -52,6 +67,19 @@ export class Colony {
         this.sources = this.memory.sourceIds.map(id=>Game.getObjectById(id)).filter((s):s is Source=>s !== null);
         this.spawns = this.memory.spawnIds.map(id=>Game.getObjectById(id)).filter((s):s is StructureSpawn=> s !== null);
         this.towers = this.memory.towerIds.map(id=>Game.getObjectById(id)).filter((s):s is StructureTower=> s !== null);
+        this.extensions = this.memory.extensionIds.map(id=>Game.getObjectById(id)).filter((s):s is StructureExtension=> s !== null);
+        this.fillerContainers = this.memory.fillerContainerIds.map(id=>Game.getObjectById(id)).filter((s):s is StructureContainer=> s !== null);
+        this.upgradeContainers = this.memory.upgradeContainerIds.map(id=>Game.getObjectById(id)).filter((s):s is StructureContainer=> s !== null);
+
+        // update the source container object
+        for(const source of this.sources) {
+            const container = source.pos.findInRange(FIND_STRUCTURES, 1, {
+                filter: (structure) => structure.structureType === STRUCTURE_CONTAINER
+            }) as StructureContainer[];
+            if (container.length > 0) {
+                this.sourceContainers.push(container[0]);
+            }
+        }
 
         // Place spawn stamp if the controller level increased
         if (this.room.controller !== undefined) {
@@ -85,6 +113,36 @@ export class Colony {
 
         this.runTowers();
         this.colonyVisualizer?.run();
+    }
+
+    setFillerContainerIds(): void {
+        this.memory.fillerContainerIds = [];
+
+        //find all containers within 1 tile of a (planned) spawn
+        let containers = this.room.find(FIND_STRUCTURES, {
+            filter: s => s.structureType === STRUCTURE_CONTAINER
+        }) as StructureContainer[];
+
+        //now check if the container is either within 1 tile of a spawn
+        for(const spawn of this.spawns) {
+            const nearbyContainers = containers.filter(c => c.pos.inRangeTo(spawn.pos, 1));
+            this.memory.fillerContainerIds.push(...nearbyContainers.map(c => c.id));
+        }
+
+        //now check if any containers are within 1 tile of a spawn in the planned construction sites list
+        for(const site of this.memory.plannedConstructionSites ?? []) {
+            const nearbyContainers = containers.filter(c => c.pos.inRangeTo(site.pos, 1));
+            this.memory.fillerContainerIds.push(...nearbyContainers.map(c => c.id));
+        }
+    }
+
+    setUpgradeContainerIds(): void {
+        const controller = this.room.controller;
+            if (controller) {
+                this.memory.upgradeContainerIds = this.room.find(FIND_STRUCTURES, {
+                    filter: s => s.structureType === STRUCTURE_CONTAINER && s.pos.inRangeTo(controller.pos, 4)
+                }).map(s => s.id) as Id<StructureContainer>[];
+            }
     }
 
     spawnCreep(role: string) {
@@ -224,6 +282,17 @@ export class Colony {
         this.placeControllerContainer();
     }
 
+    getControllerContainer(): StructureContainer | null {
+        if (!this.room.controller){
+            this.placeControllerContainer();
+            return null;
+        }
+
+        return this.room.controller.pos.findInRange(FIND_STRUCTURES, 4, {
+            filter: (s) => s.structureType === STRUCTURE_CONTAINER
+        })[0] as StructureContainer | null;
+    }
+
     placeControllerContainer(): void {
         /**
          * places a container near the controller which will be used for upgraders to pick up from
@@ -241,8 +310,10 @@ export class Colony {
         // if it doesn't then place one
         const containerPos = this.room.controller.pos.findNearestOpenTile(4, 3, true, true);
         if (containerPos) {
-            const newContainer = containerPos.createConstructionSite(STRUCTURE_CONTAINER);
-            console.log(`Placing container for controller in colony ${this.room.name}`);
+            this.memory.plannedConstructionSites ??= [];
+            this.memory.plannedConstructionSites.push({pos: containerPos, structureType: STRUCTURE_CONTAINER, priority: 0});
+            // const newContainer = containerPos.createConstructionSite(STRUCTURE_CONTAINER);
+            console.log(`Adding planned container construction for controller in colony ${this.room.name}`);
         }
     }
 

@@ -23,12 +23,17 @@ declare global {
         tasks?: Record<string, any>;
         lastSeen?: number;
         spawnIds?: Id<StructureSpawn>[];
+        extensionIds?: Id<StructureExtension>[];
         sourceIds?: Id<Source>[];
+        fillerContainerIds?: Id<StructureContainer>[];
+        upgradeContainerIds?: Id<StructureContainer>[];
+        storageId?: Id<StructureStorage>;
         creepRoleCounts?: {[role:string]: number};
         taskQueue: string[];
         towerIds?: Id<StructureTower>[];
         lastStampRCL?: number;
         plannedConstructionSites?: {pos: RoomPosition, structureType: BuildableStructureConstant, priority: number}[];
+
     }
 
     interface EmpireMemory {
@@ -44,7 +49,7 @@ declare global {
 
     interface TaskMemory {
         id?: string;
-        type?: 'HARVEST' | "HAUL" | "BUILD" | "UPGRADE" | "MINE" | "SCOUT";
+        type?: 'HARVEST' | "HAUL" | "BUILD" | "UPGRADE" | "MINE" | "SCOUT" | "PICKUP" | "FILL";
         targetId?: Id<any>;
         assignedCreep?: string;
         status?: "PENDING" | "IN_PROGRESS" | "DONE";
@@ -73,5 +78,7 @@ declare global {
         spawns: StructureSpawn[];
         sources: Source[];
         room: Room;
+        sourceContainers: StructureContainer[];
+        extensions: StructureExtension[];
     }
 }

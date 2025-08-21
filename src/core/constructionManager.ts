@@ -18,6 +18,7 @@ export class ConstructionManager {
 
             if (existingStructures.length + existingConstructionSites.length < allowedAmount) {
                 site.pos.createConstructionSite(site.structureType);
+                console.log(`Placing construction site for ${site.structureType} at ${site.pos} in room ${room.name}`);
             }
 
         }

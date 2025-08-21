@@ -1,11 +1,11 @@
 
 import { Empire } from "./empire";
 import { getAllTaskMemory, getCreepMemory, getTaskMemory } from "./memory";
-import { Colony } from "colony/colony";
+// import { Colony } from "colony/colony";
 // import { Empire } from "./empire";
 
 export class TaskManager {
-    static createTask(type: TaskMemory['type'], target: AnyStructure | Source | ConstructionSite, colony: string, priority:number = 0, role:string|undefined = undefined): string {
+    static createTask(type: TaskMemory['type'], target: AnyStructure | Source | ConstructionSite | Resource, colony: string, priority:number = 0, role:string|undefined = undefined): string {
         if(!Memory.tasks) {
             Memory.tasks = {};
         }
@@ -80,7 +80,7 @@ export class TaskManager {
         }
     }
 
-    static createTasks(focus: Colony | EmpireLike) {
+    static createTasks(focus: ColonyLike | EmpireLike) {
         if ("colonies" in focus) {
             for(const colony of focus.colonies) {
                 this.createColonyTasks(colony);
@@ -96,7 +96,7 @@ export class TaskManager {
             this.createUpgradeTasks(colony.room.controller);
         }
         this.createColonyBuildTasks(colony);
-        this.createSpawnHaulTasks(colony);
+        this.createHaulTasks(colony);
     }
 
     static createColonyBuildTasks(colony: ColonyLike) {
@@ -130,19 +130,27 @@ export class TaskManager {
     }
 
     static createSourceTasks(focus: ColonyLike | Source) {
+        let sources: Source[] = [];
         if ("sources" in focus) {
-            // for each free tile around the source create a harvest task
-            focus.sources.forEach(source => {
-                const freeTiles = source.pos.getFreeTiles();
-                freeTiles.forEach(tile => {
-                    TaskManager.createTask(`HARVEST`, source, focus.room.name);
-                });
-            });
+            sources = sources.concat(focus.sources);
         } else {
-            const freeTiles = focus.pos.getFreeTiles();
-            freeTiles.forEach(tile => {
-                TaskManager.createTask(`HARVEST`, focus, focus.room.name);
+            sources = [focus];
+        }
+        for(const source of sources){
+            //check if there is a container within 1 tile of that source
+            const container = source.pos.findInRange(FIND_STRUCTURES, 1, {
+                filter: (structure) => structure.structureType === STRUCTURE_CONTAINER
             });
+            if (container.length > 0) {
+                // If there is a container, create a mining task
+                TaskManager.createTask(`MINE`, source, focus.room.name);
+            }
+            else {
+                // If there is no container, create harvest tasks for all free tiles
+                for (const tile of source.pos.getFreeTiles()) {
+                    TaskManager.createTask(`HARVEST`, source, focus.room.name);
+                }
+            }
         }
     }
 
@@ -158,15 +166,57 @@ export class TaskManager {
         }
     }
 
-    static createSpawnHaulTasks(focus: StructureSpawn | ColonyLike){
-        if ("spawns" in focus) {
+    static createHaulTasks(focus: EmpireLike | ColonyLike){
+        // this has to look at all locations where energy can be dropped off and create tasks if energy is required anywhere
+
+        if("colonies" in focus){
+            //this will enable future handling of hauling outside colony level logic
+            focus.colonies.forEach(colony => {
+                TaskManager.createHaulTasks(colony);
+            });
+        } else{
             // Create haul tasks for each spawn in the colony
             focus.spawns.filter(s=>s.store.getFreeCapacity(RESOURCE_ENERGY) > 0).forEach(spawn => {
                 TaskManager.createTask(`HAUL`, spawn, focus.room.name,10);
             });
-        } else {
-            // Create a haul task for the spawn
-            TaskManager.createTask(`HAUL`, focus, focus.room.name,10);
+            // Create a haul task for extensions
+            focus.extensions.filter(e=>e.store.getFreeCapacity(RESOURCE_ENERGY) > 0).forEach(extension => {
+                TaskManager.createTask(`HAUL`, extension, focus.room.name,10);
+            });
+            //
+            // Haul to the upgrade container, which is the container in the room nearest to the controller
+
+            // haul to the filler containers
+
+            // haul to storage (if available in the room)
+
+        }
+    }
+
+    static createPickupTasks(focus: ColonyLike | EmpireLike){
+        // once harvest tasks are no longer being created this is where energy enters the system from
+
+        // this has to look at all locations where energy can be picked up and create tasks if energy is available
+        if("colonies" in focus) {
+            focus.colonies.forEach(colony => {
+                TaskManager.createPickupTasks(colony);
+            });
+        } else{
+            if ("sourceContainers" in focus) {
+                // check if there is anything to pickup from source containers
+                focus.sourceContainers.forEach(container => {
+                    if (container.store[RESOURCE_ENERGY] > 0) {
+                        TaskManager.createTask(`PICKUP`, container, focus.room.name);
+                    }
+                });
+            }
+            //check for any energy dropped on the floor
+            const droppedResources = focus.room.find(FIND_DROPPED_RESOURCES);
+            droppedResources.forEach(resource => {
+                if (resource.resourceType === RESOURCE_ENERGY) {
+                    TaskManager.createTask(`PICKUP`, resource, focus.room.name);
+                }
+            });
         }
     }
 }
