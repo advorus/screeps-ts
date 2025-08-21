@@ -1,0 +1,7 @@
+
+
+Fill tasks can be done by a hauler
+Upgrader tasks need a work part
+Hauler tasks need move and carry parts
+Pickup tasks can be done by haulers
+Mining tasks miners only

@@ -15,10 +15,21 @@ export class ConstructionManager {
             // also need to find existingConstructionSites of the same type
             const existingConstructionSites = room.find(FIND_CONSTRUCTION_SITES, { filter: s => s.structureType === site.structureType });
             const allowedAmount = CONTROLLER_STRUCTURES[site.structureType][room.controller?.level || 0];
+            const pos = new RoomPosition(site.pos.x, site.pos.y, room.name);
 
             if (existingStructures.length + existingConstructionSites.length < allowedAmount) {
-                site.pos.createConstructionSite(site.structureType);
-                console.log(`Placing construction site for ${site.structureType} at ${site.pos} in room ${room.name}`);
+                // if there is no site currently at the roomposition
+                const existingSite = room.lookForAt(LOOK_CONSTRUCTION_SITES, pos).filter(s => s.structureType === site.structureType);
+                if (existingSite.length === 0) {
+                    console.log(`Placing construction site for ${site.structureType} at ${pos.x}, ${pos.y} in room ${room.name}`);
+                    if (site.structureType === STRUCTURE_SPAWN) {
+                        pos.createConstructionSite(site.structureType, `Spawn_${Game.time}_${room.name}`);
+                    }
+                    else{
+                        pos.createConstructionSite(site.structureType);
+                    }
+                }
+
             }
 
         }

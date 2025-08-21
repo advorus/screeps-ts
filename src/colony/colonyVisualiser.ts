@@ -59,7 +59,26 @@ export class ColonyVisualizer {
             return counts;
         }, {});
 
-        y = 10;
+        // show the location, type and target of the 5 highest priority tasks
+        const highestPriorityTasks = tasks
+            .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
+            .slice(0, 5);
+
+        y = 7;
+        for (const task of highestPriorityTasks) {
+            visual.text(`${task.type} with priority ${task.priority} and target ${task.targetId}, status: ${task.status}, assigned to ${task.assignedCreep}`, 1, y,
+                {
+                    align: 'left',
+                    color: 'white',
+                    font: 'bold 2px Arial'
+                }
+            );
+            y++;
+        }
+
+        y+=2;
+
+        // show the counts of each type of task
         for (const [type, count] of Object.entries(taskCounts)) {
             visual.text(`${type}: ${count}`, 1, y,
                 {

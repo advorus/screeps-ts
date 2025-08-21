@@ -81,11 +81,21 @@ RoomPosition.prototype.canPlaceStamp = function(stamp: Stamp): boolean {
     /**
      * Checks if the given stamp can be placed at this room position.
      */
+    console.log(`Checking if can place stamp at ${this.x}, ${this.y}`);
     for (const {dx, dy, structureType} of stamp) {
         const pos = new RoomPosition(this.x + dx, this.y + dy, this.roomName);
         if (pos.lookFor(LOOK_TERRAIN)[0] === 'wall') return false; // Can't place on walls
-        if (pos.lookFor(LOOK_CONSTRUCTION_SITES).length > 0) return false; // Can't place on construction sites
-        if (pos.lookFor(LOOK_STRUCTURES).length > 0) return false; // Can't place on structures
+        // need to check whether the construction sites/structures match those in the stamp, rather than just checking for their existence
+        const constructionSites = pos.lookFor(LOOK_CONSTRUCTION_SITES);
+        const structures = pos.lookFor(LOOK_STRUCTURES);
+        for(const site of constructionSites) {
+            // check to see if the structuretype of the site matches the stamp
+            if (site.structureType !== structureType) return false; // Can't place if there's a different construction site
+        }
+        for (const structure of structures) {
+            // check to see if the structuretype of the structure matches the stamp
+            if (structure.structureType !== structureType) return false; // Can't place if there's a different structure
+        }
     }
     return true;
 }

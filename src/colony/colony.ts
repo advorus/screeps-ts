@@ -89,6 +89,7 @@ export class Colony {
         if (this.room.controller !== undefined) {
             if (this.memory.lastStampRCL < this.room.controller.level) {
                 this.placeSpawnStamp();
+                console.log("Placed spawn stamp for colony " + this.room.name);
                 this.memory.lastStampRCL = this.room.controller.level;
             }
         }
@@ -249,7 +250,12 @@ export class Colony {
             !task.assignedCreep
         );
 
-        return unassignedWorkerTasks.length > 0;
+        if (workers.length < 12){
+            return unassignedWorkerTasks.length > 0;
+        }
+        else{
+            return false
+        }
 
     }
 
@@ -262,10 +268,19 @@ export class Colony {
 
         if (task.targetId === undefined) {
             console.error(`Task ${taskId} has no targetId`);
+            task.status = `DONE`;
+            delete creep.memory.taskId;
             return;
         }
 
         const target = Game.getObjectById(task.targetId);
+        if (target === undefined) {
+            console.error(`Task ${taskId} has invalid targetId`);
+            task.status = `DONE`;
+            delete creep.memory.taskId;
+            return;
+        }
+
         switch (task.type) {
             case 'HARVEST':
                 if(creep.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
@@ -437,14 +452,17 @@ export class Colony {
         // check if any of the potential anchor points from the current spawn enable the stamp to be placed. if not throw an error
         const potential_anchors: RoomPosition[] = [];
         const spawnPos = this.spawns[0].pos;
-        potential_anchors.push(new RoomPosition(spawnPos.x+2, spawnPos.y-1, spawnPos.roomName));
-        potential_anchors.push(new RoomPosition(spawnPos.x-2, spawnPos.y-1, spawnPos.roomName));
-        potential_anchors.push(new RoomPosition(spawnPos.x, spawnPos.y+2, spawnPos.roomName));
+        potential_anchors.push(new RoomPosition(spawnPos.x+2, spawnPos.y+1, spawnPos.roomName));
+        potential_anchors.push(new RoomPosition(spawnPos.x-2, spawnPos.y+1, spawnPos.roomName));
+        potential_anchors.push(new RoomPosition(spawnPos.x, spawnPos.y-2, spawnPos.roomName));
 
         //check each anchor to see if it is at the centre of a free 7x7 block (ignore any structure which fits the stamp)
         for (const anchor of potential_anchors) {
+            console.log(`Checking to see if can place spawn stamp at ${anchor}`);
             if (anchor.canPlaceStamp(spawnStamp)) {
                 this.placeStampIntoMemory(anchor, spawnStamp);
+                console.log(`Placed spawn stamp for colony ${this.room.name} at ${anchor}`);
+                console.log(this.memory.plannedConstructionSites);
                 break;
             }
         }
@@ -452,7 +470,7 @@ export class Colony {
 
     isMissingStructures(): boolean {
         for(const structure_constant of Object.keys(CONTROLLER_STRUCTURES) as BuildableStructureConstant[]){
-            if (structure_constant !== STRUCTURE_CONTAINER) {
+            if (!(structure_constant in [STRUCTURE_CONTAINER, STRUCTURE_ROAD, STRUCTURE_RAMPART, STRUCTURE_WALL])) {
                 const existing_structures = this.room.find(FIND_MY_STRUCTURES, {filter: (s) => s.structureType === structure_constant});
                 const existing_construction_sites = this.room.find(FIND_CONSTRUCTION_SITES, {filter: (s) => s.structureType === structure_constant});
                 if (existing_structures.length + existing_construction_sites.length < CONTROLLER_STRUCTURES[structure_constant][this.room.controller?.level || 0]) {
