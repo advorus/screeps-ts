@@ -80,5 +80,7 @@ declare global {
         room: Room;
         sourceContainers: StructureContainer[];
         extensions: StructureExtension[];
+        upgradeContainers: StructureContainer[];
+        fillerContainers: StructureContainer[];
     }
 }

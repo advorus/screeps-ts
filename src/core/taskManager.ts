@@ -1,5 +1,5 @@
 
-import { Empire } from "./empire";
+// import { Empire } from "./empire";
 import { getAllTaskMemory, getCreepMemory, getTaskMemory } from "./memory";
 // import { Colony } from "colony/colony";
 // import { Empire } from "./empire";
@@ -26,6 +26,29 @@ export class TaskManager {
                 return 2;
             default:
                 return 1;
+        }
+    }
+
+    static reprioritiseTasks(empire: EmpireLike): void {
+        this.prioritiseBuildTasks(empire);
+    }
+
+    static prioritiseBuildTasks(empire: EmpireLike): void {
+        /**
+         * Prioritise build tasks for each colony based on their current needs
+         * Currently, will ensure a single site is prioritised at a time
+         */
+        for (const colony of empire.colonies) {
+            for (const task of getAllTaskMemory()) {
+                if (task.colony === colony.room.name) {
+                    // if there are multiple tasks with the same maximum priority level, one of the tasks should have its priority increased by 1
+                    const maxPriority = Math.max(...getAllTaskMemory().map(t => t.priority || 0));
+                    if (task.priority === maxPriority) {
+                        task.priority = (task.priority || 0) + 1;
+                        break;
+                    }
+                }
+            }
         }
     }
 
@@ -129,21 +152,18 @@ export class TaskManager {
         }
     }
 
-    static createSourceTasks(focus: ColonyLike | Source) {
-        let sources: Source[] = [];
-        if ("sources" in focus) {
-            sources = sources.concat(focus.sources);
-        } else {
-            sources = [focus];
-        }
+    static createSourceTasks(focus: ColonyLike) {
+        const sources = focus.sources;
         for(const source of sources){
-            //check if there is a container within 1 tile of that source
+            // if there is a source container
             const container = source.pos.findInRange(FIND_STRUCTURES, 1, {
                 filter: (structure) => structure.structureType === STRUCTURE_CONTAINER
             });
             if (container.length > 0) {
                 // If there is a container, create a mining task
                 TaskManager.createTask(`MINE`, source, focus.room.name);
+                // need to create pickup tasks
+                this.createPickupTasks(focus);
             }
             else {
                 // If there is no container, create harvest tasks for all free tiles
@@ -175,22 +195,46 @@ export class TaskManager {
                 TaskManager.createHaulTasks(colony);
             });
         } else{
-            // Create haul tasks for each spawn in the colony
-            focus.spawns.filter(s=>s.store.getFreeCapacity(RESOURCE_ENERGY) > 0).forEach(spawn => {
-                TaskManager.createTask(`HAUL`, spawn, focus.room.name,10);
-            });
-            // Create a haul task for extensions
-            focus.extensions.filter(e=>e.store.getFreeCapacity(RESOURCE_ENERGY) > 0).forEach(extension => {
-                TaskManager.createTask(`HAUL`, extension, focus.room.name,10);
-            });
             //
             // Haul to the upgrade container, which is the container in the room nearest to the controller
-
+            if (focus.upgradeContainers.length > 0) {
+                const upgradeContainer = focus.upgradeContainers[0];
+                if (upgradeContainer.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
+                    TaskManager.createTask(`HAUL`, upgradeContainer, focus.room.name, 0);
+                }
+            }
             // haul to the filler containers
-
+            if (focus.fillerContainers.length > 0){
+                for(const fillerContainer of focus.fillerContainers){
+                    if(fillerContainer.store.getFreeCapacity(RESOURCE_ENERGY) > 0){
+                        TaskManager.createTask(`HAUL`, fillerContainer, focus.room.name, 10);
+                    }
+                }
+                this.createFillerTasks(focus);
+            } else{
+                // Create haul tasks for each spawn in the colony
+                focus.spawns.filter(s=>s.store.getFreeCapacity(RESOURCE_ENERGY) > 0).forEach(spawn => {
+                    TaskManager.createTask(`HAUL`, spawn, focus.room.name,10);
+                });
+                // Create a haul task for extensions
+                focus.extensions.filter(e=>e.store.getFreeCapacity(RESOURCE_ENERGY) > 0).forEach(extension => {
+                    TaskManager.createTask(`HAUL`, extension, focus.room.name,10);
+                });
+            }
             // haul to storage (if available in the room)
 
         }
+    }
+
+    static createFillerTasks(focus: ColonyLike) {
+        /**
+         * Create fill tasks for all filler containers in the colony
+         */
+        focus.fillerContainers.forEach(container => {
+            if (container.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
+                TaskManager.createTask(`FILL`, container, focus.room.name, 0);
+            }
+        });
     }
 
     static createPickupTasks(focus: ColonyLike | EmpireLike){

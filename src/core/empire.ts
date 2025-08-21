@@ -32,6 +32,7 @@ export class Empire {
     run() {
         // Empire-level task creation
         TaskManager.createTasks(this);
+        TaskManager.reprioritiseTasks(this);
 
         // Empire-level spawning decision
         for (const colony of this.colonies) {
