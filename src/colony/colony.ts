@@ -339,7 +339,16 @@ export class Colony {
          */
         for (const {dx, dy, structureType} of stamp) {
             const pos = new RoomPosition(anchor.x + dx, anchor.y + dy, anchor.roomName);
-            pos.createConstructionSite(structureType);
+            if(!this.memory.plannedConstructionSites) return;
+            // check if there is a matching construction site in memory
+            const existingSite = this.memory.plannedConstructionSites.find(site => site.pos.isEqualTo(pos) && site.structureType === structureType);
+            if(!existingSite) {
+                // Otherwise, we need to create a new site
+                this.memory.plannedConstructionSites.push({
+                    pos: pos,
+                    structureType: structureType
+                });
+            }
         }
     }
 
