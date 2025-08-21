@@ -149,7 +149,7 @@ export class Colony {
                 task.status !== 'DONE'
             );
             if (existingHaulTasks.length >= 1) continue; // Skip if there's already a haul task for this spawn
-            TaskManager.createTask(`HAUL`, spawn, this.room.name, 2); // Priority 1 for hauling to spawn
+            TaskManager.createTask(`HAUL`, spawn, this.room.name, 10); // Priority 10 for hauling to spawn
         }
 
         this.createBuildingTasks();
@@ -161,13 +161,25 @@ export class Colony {
         for (const site of construction_sites) {
             const existingBuildTasks = Object.values(Memory.tasks).filter(task =>
                 task.type === 'BUILD' &&
-                // task.targetId === site.id &&
+                task.targetId == site.id &&
                 task.colony === this.room.name &&
                 task.status !== 'DONE'
             );
             if (existingBuildTasks.length >= 1) continue; // Skip if there's already a build task for this site
-            console.log(`Creating build task for ${site.id} in colony ${this.room.name}`);
-            TaskManager.createTask(`BUILD`, site, this.room.name, 1);
+
+            let priority = TaskManager.getBuildPriority(site);
+            const existingBuildTaskOfType = Object.values(Memory.tasks).find(task => {
+                if (!task.targetId) return false;
+                else return task.type === 'BUILD' &&
+                task.colony === this.room.name &&
+                task.status !== 'DONE' &&
+                Game.getObjectById(task.targetId)?.structureType === site.structureType;
+            });
+            if (!existingBuildTaskOfType) {
+                priority += 1;
+            }
+            console.log(`Creating build task for ${site.id} in colony ${this.room.name} with priority ${priority}`);
+            TaskManager.createTask(`BUILD`, site, this.room.name, priority);
         }
     }
 

@@ -10,6 +10,21 @@ export class TaskManager {
         return id;
     }
 
+    static getBuildPriority(site: ConstructionSite): number {
+        switch(site.structureType) {
+            case STRUCTURE_SPAWN:
+                return 5;
+            case STRUCTURE_TOWER:
+                return 4;
+            case STRUCTURE_EXTENSION:
+                return 2;
+            case STRUCTURE_CONTAINER:
+                return 2;
+            default:
+                return 1;
+        }
+    }
+
     static assignTask(creep:Creep) {
         const availableTasks = Object.values(Memory.tasks).filter(task =>
             task.status === `PENDING` &&
