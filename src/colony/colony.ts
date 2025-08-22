@@ -416,6 +416,11 @@ export class Colony {
                 }
                 break;
             case "REPAIR":
+                if(Game.getObjectById(task.targetId)?.hits === Game.getObjectById(task.targetId)?.hitsMax) {
+                    task.status = `DONE`;
+                    delete creep.memory.taskId;
+                    break;
+                }
                 if (Game.getObjectById(task.targetId) === null) {
                     task.status = `DONE`;
                     delete creep.memory.taskId;
