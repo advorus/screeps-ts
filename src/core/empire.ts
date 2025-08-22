@@ -79,11 +79,13 @@ export class Empire {
             const task = getTaskMemory(taskId);
             // remove completed tasks
             if(task.status === `DONE`) {
+                console.log(`Task ${task.id} completed and so is being deleted`);
                 delete Memory.tasks[taskId];
             }
             // remove assigned creeps from tasks if the creep is no longer in the game
             if (task.assignedCreep){
                 if(!(task.assignedCreep in Game.creeps)) {
+                    // console.log(`Creep ${task.assignedCreep} is no longer in the game and so removing it from task`);
                     delete task.assignedCreep;
                     task.status = "PENDING";
                 }

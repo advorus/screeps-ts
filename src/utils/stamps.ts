@@ -63,3 +63,27 @@ export const spawnStamp: Stamp = [
     {dx:3, dy:-1, structureType: STRUCTURE_ROAD},
     {dx:3, dy:-2, structureType: STRUCTURE_ROAD}
 ];
+
+export const coreStamp: Stamp = [
+    {dx:-1, dy: -1, structureType: STRUCTURE_FACTORY},
+    {dx:0, dy: -1, structureType: STRUCTURE_NUKER},
+    {dx:1, dy:-1, structureType: STRUCTURE_POWER_SPAWN},
+    {dx: -1, dy:0, structureType: STRUCTURE_STORAGE},
+    {dx: 1, dy:0, structureType: STRUCTURE_LINK},
+    {dx: -1, dy:1, structureType: STRUCTURE_TERMINAL},
+    {dx:0, dy:1, structureType: STRUCTURE_OBSERVER},
+    {dx:-2, dy:-1, structureType: STRUCTURE_ROAD},
+    {dx:-2, dy:0, structureType: STRUCTURE_ROAD},
+    {dx:-2, dy:1, structureType: STRUCTURE_ROAD},
+    {dx: 2, dy:-1, structureType: STRUCTURE_ROAD},
+    {dx: 2, dy:0, structureType: STRUCTURE_ROAD},
+    {dx: 2, dy:1, structureType: STRUCTURE_ROAD},
+    {dx:-1, dy:-2, structureType: STRUCTURE_ROAD},
+    {dx:0, dy:-2, structureType: STRUCTURE_ROAD},
+    {dx:1, dy:-2, structureType: STRUCTURE_ROAD},
+    {dx:-1, dy:2, structureType: STRUCTURE_ROAD},
+    {dx:0, dy:2, structureType: STRUCTURE_ROAD},
+    {dx:1, dy:2, structureType: STRUCTURE_ROAD}
+];
+
+

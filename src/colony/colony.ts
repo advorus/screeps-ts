@@ -2,7 +2,7 @@ import {getColonyMemory,getCreepMemory, getTaskMemory} from "core/memory";
 
 import "utils/roomPosition";
 import "utils/move";
-import { extensionStamp, spawnStamp } from "utils/stamps";
+import { coreStamp, extensionStamp, spawnStamp } from "utils/stamps";
 import { ConstructionManager } from "core/constructionManager";
 import { ColonyVisualizer } from "./colonyVisualiser";
 import {profile} from "Profiler";
@@ -91,9 +91,26 @@ export class Colony {
         // Place spawn stamp if the controller level increased
         if (this.room.controller !== undefined) {
             if (this.memory.lastStampRCL < this.room.controller.level) {
-                this.placeSpawnStamp();
-                console.log("Placed spawn stamp for colony " + this.room.name);
+                // check if there are three spawns either built or planned
+                const spawnsOnMap = this.room.find(FIND_MY_SPAWNS);
+                const plannedSpawns = this.memory.plannedConstructionSites.filter(site => site.structureType === STRUCTURE_SPAWN);
+                if(spawnsOnMap.length + plannedSpawns.length < 3){
+                    this.placeSpawnStamp();
+                        console.log("Placed spawn stamp for colony " + this.room.name);
+                }
                 this.memory.lastStampRCL = this.room.controller.level;
+                if(this.room.controller.level == 3) {
+                    this.placeContainers();
+                    console.log("Placed container stamps for colony " + this.room.name);
+                }
+                const existingNukers = this.room.find(FIND_MY_STRUCTURES, {
+                    filter: (s): s is StructureNuker => s.structureType === STRUCTURE_NUKER
+                });
+                const plannedNukers = this.memory.plannedConstructionSites.filter(site => site.structureType === STRUCTURE_NUKER);
+                if(existingNukers.length + plannedNukers.length == 0){
+                    this.placeCoreStamp();
+                    console.log("Placed core stamp for colony " + this.room.name);
+                }
             }
         }
 
@@ -104,6 +121,7 @@ export class Colony {
 
         // Initialise visualiser
         this.colonyVisualizer = new ColonyVisualizer(this);
+
     }
 
     run() {
@@ -197,7 +215,7 @@ export class Colony {
     }
 
     minerBodyParts(): BodyPartConstant[] {
-        const num_work_parts = Math.floor((this.room.energyCapacityAvailable-50) / 100);
+        const num_work_parts = Math.max(Math.floor((this.room.energyCapacityAvailable-50) / 100),5);
         return Array(num_work_parts).fill(WORK).concat(MOVE);
     }
 
@@ -215,7 +233,14 @@ export class Colony {
             })[0];
 
             if (!container) {
-                const newContainer = source.pos.createConstructionSite(STRUCTURE_CONTAINER);
+                const nearestOpenTile = source.pos.findNearestOpenTile(1, 1, true, true);
+                if (nearestOpenTile!==null){
+                    const newContainer = this.memory.plannedConstructionSites?.push({
+                        pos: nearestOpenTile,
+                        structureType: STRUCTURE_CONTAINER,
+                        priority: 0
+                    });
+                }
                 console.log(`Placing container for ${source.id} in colony ${this.room.name}`);
             }
         }
@@ -287,7 +312,7 @@ export class Colony {
         if (!task || task.status !== 'IN_PROGRESS') return;
 
         if (task.targetId === undefined) {
-            console.error(`Task ${taskId} has no targetId`);
+            console.log(`Task ${taskId} of type ${task.type} has no targetId`);
             task.status = `DONE`;
             delete creep.memory.taskId;
             return;
@@ -295,12 +320,13 @@ export class Colony {
 
         const target = Game.getObjectById(task.targetId);
         if (target === undefined) {
-            console.error(`Task ${taskId} has invalid targetId`);
+            console.log(`Task ${taskId} of type ${task.type} has invalid targetId`);
             task.status = `DONE`;
             delete creep.memory.taskId;
             return;
         }
 
+        // console.log(`Running ${task.type} task for creep ${creep.name}`);
         switch (task.type) {
             case 'HARVEST':
                 if(creep.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
@@ -352,6 +378,7 @@ export class Colony {
                     }
                     break;
                 }
+                break;
             case 'BUILD':
                 if (Game.getObjectById(task.targetId) === null) {
                     task.status = `DONE`;
@@ -390,19 +417,21 @@ export class Colony {
                 break;
             case `FILL`:
                 // there is no longer any energy in the container to fill with
-                if(Game.getObjectById(task.targetId)?.store[RESOURCE_ENERGY] === 0) {
-                    task.status = `DONE`;
-                    delete creep.memory.taskId;
-                    break;
-                }
-                if(creep.store[RESOURCE_ENERGY] === 0) {
+                if(creep.store.getUsedCapacity(RESOURCE_ENERGY) === 0) {
+                    if(Game.getObjectById(task.targetId)?.store[RESOURCE_ENERGY] === 0) {
+                        task.status = `DONE`;
+                        delete creep.memory.taskId;
+                        console.log(`Creep ${creep.name} has completed FILL task for ${target.id}`);
+                        break;
+                    }
                     creep.memory.working = false;
                     // withdraw from the target
                 }
-                if(creep.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
+                if(creep.store.getFreeCapacity(RESOURCE_ENERGY) === 0 || Game.getObjectById(task.targetId)?.store[RESOURCE_ENERGY] === 0) {
                     creep.memory.working = true;
                 }
                 if (creep.memory.working) {
+                    // console.log(`Creep ${creep.name} is working on filling`);
                     //otherwise fill the nearest in a list of spawns and extensions needing energy by range
                     const targets = this.room.find(FIND_MY_STRUCTURES, {
                         filter: (s) => (s.structureType === STRUCTURE_SPAWN || s.structureType === STRUCTURE_EXTENSION) && s.store.getFreeCapacity(RESOURCE_ENERGY) > 0
@@ -415,12 +444,21 @@ export class Colony {
                             }
                         }
                     }
+                    else {
+                        // there is nowhere left to fill energy with
+                        task.status = `DONE`;
+                        delete creep.memory.taskId;
+                        break;
+                    }
                 }
                 else {
+
+                    // console.log(`Creep ${creep.name} withdrawing from container ${target.id}`);
                     if (creep.withdraw(target as AnyStructure, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
                         creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
                     }
                 }
+                break;
             case `PICKUP`:
                 //pickup from the target
                 if (creep.store.getFreeCapacity() === 0) {
@@ -431,7 +469,9 @@ export class Colony {
                 if (creep.pickup(target as Resource) === ERR_NOT_IN_RANGE) {
                     creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
                 }
+                break;
         }
+        // console.log(`Status of task ${task.id}: ${task.status}`);
 
     }
 
@@ -445,6 +485,30 @@ export class Colony {
         }
     }
 
+    placeCoreStamp() {
+        /**
+         * Finds the spot nearest to the spawn which will fit the core stamp and then places it there.
+         */
+        if(!this.spawns[0]) return;
+        // now spiral outwards from here, checking at each location (which isn't a wall) if the core stamp will fit with that position as the anchor
+        const spawnPos = this.spawns[0].pos;
+        const searchRadius = 5;
+        for (let r = 1; r <= searchRadius; r++) {
+            for (let x = -r; x <= r; x++) {
+                for (let y = -r; y <= r; y++) {
+                    if(Math.abs(x)!==r && Math.abs(y)!==r) continue; // Only check the outer ring of the square
+                    const pos = new RoomPosition(spawnPos.x + x, spawnPos.y + y, spawnPos.roomName);
+                    if (pos.canPlaceStamp(coreStamp)) {
+                        this.placeStampIntoMemory(pos, coreStamp);
+                        console.log(`Placed core stamp for colony ${this.room.name} at ${pos}`);
+                        console.log(this.memory.plannedConstructionSites);
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
     placeStampIntoMemory(anchor: RoomPosition, stamp: {dx:number, dy:number, structureType: BuildableStructureConstant}[]) {
         /**
          * Places a stamp into the planned construction sites array.
@@ -453,7 +517,10 @@ export class Colony {
             const pos = new RoomPosition(anchor.x + dx, anchor.y + dy, anchor.roomName);
             if(!this.memory.plannedConstructionSites) return;
             // check if there is a matching construction site in memory
-            const existingSite = this.memory.plannedConstructionSites.find(site => site.pos.isEqualTo(pos) && site.structureType === structureType);
+            const existingSite = this.memory.plannedConstructionSites.find(site => {
+                const sitePos = new RoomPosition(site.pos.x, site.pos.y, site.pos.roomName);
+                return sitePos.isEqualTo(pos) && site.structureType === structureType;
+            });
             if(!existingSite) {
                 // Otherwise, we need to create a new site
                 //the site priority should be the distance to the closest spawn, found by iterating over the spawns and taking the minimum

@@ -1,4 +1,5 @@
 import { SourceMapConsumer } from "source-map";
+// const profiler = require('screeps-profiler');
 
 export class ErrorMapper {
   // Cache consumer

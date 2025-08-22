@@ -123,6 +123,7 @@ export class TaskManager {
                     console.log(`Creating a new ${task.type} task for ${task.targetId} in colony ${task.colony} because existing creeps cannot fulfil the energy requirement`);
                     this.createTask(task.type, Game.getObjectById(task.targetId) as AnyStructure | Source, task.colony as string, task.priority || 0);
                 }
+                console.log(`Assigned task ${task.id} of type ${task.type} to creep ${creep.name}`);
                 return; // Return the assigned task ID
             }
         }
@@ -287,11 +288,18 @@ export class TaskManager {
         /**
          * Create fill tasks for all filler containers in the colony
          */
-        focus.fillerContainers.forEach(container => {
-            if (container.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
-                TaskManager.createTask(`FILL`, container, focus.room.name, 0);
-            }
-        });
+        // check if there is anywhere left to fill energy
+        // console.log(`Energy available in room is ${focus.room.energyAvailable} and energy capacity is ${focus.room.energyCapacityAvailable}`);
+        if(focus.room.energyCapacityAvailable>focus.room.energyAvailable){
+            // console.log(`Creating fill tasks...`);
+            focus.fillerContainers.forEach(container => {
+                if (container.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
+                    if (TaskManager.checkForExistingTasks(`FILL`, container, focus.room.name) === 0) {
+                        TaskManager.createTask(`FILL`, container, focus.room.name, 9);
+                    }
+                }
+            });
+        }
     }
 
     static createPickupTasks(focus: ColonyLike | EmpireLike){

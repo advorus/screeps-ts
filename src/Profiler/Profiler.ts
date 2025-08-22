@@ -39,7 +39,7 @@ export function init(): Profiler {
       delete Memory.profiler.start;
       return "Profiler stopped";
     },
-    
+
     toString() {
        return "Profiler.start() - Starts the profiler\n" +
           "Profiler.stop() - Stops/Pauses the profiler\n" +
@@ -63,10 +63,10 @@ function wrapFunction(obj: object, key: PropertyKey, className?: string) {
 
   // set a key for the object in memory
   if (!className) { className = obj.constructor ? `${obj.constructor.name}` : ""; }
-  const memKey = className + `:${key}`;
+  const memKey = className + `:${String(key)}`;
 
   // set a tag so we don't wrap a function twice
-  const savedName = `__${key}__`;
+  const savedName = `__${String(key)}__`;
   if (Reflect.has(obj, savedName)) { return; }
 
   Reflect.set(obj, savedName, originalFunction);
@@ -117,14 +117,14 @@ function isEnabled(): boolean {
 }
 
 function record(key: string | symbol, time: number) {
-  if (!Memory.profiler.data[key]) {
-    Memory.profiler.data[key] = {
+  if (!Memory.profiler.data[String(key)]) {
+    Memory.profiler.data[String(key)] = {
       calls: 0,
       time: 0,
     };
   }
-  Memory.profiler.data[key].calls++;
-  Memory.profiler.data[key].time += time;
+  Memory.profiler.data[String(key)].calls++;
+  Memory.profiler.data[String(key)].time += time;
 }
 
 interface OutputData {
@@ -148,10 +148,10 @@ function outputProfilerData() {
   let time: number;
   let result: Partial<OutputData>;
   const data = Reflect.ownKeys(Memory.profiler.data).map((key) => {
-    calls = Memory.profiler.data[key].calls;
-    time = Memory.profiler.data[key].time;
+    calls = Memory.profiler.data[String(key)].calls;
+    time = Memory.profiler.data[String(key)].time;
     result = {};
-    result.name = `${key}`;
+    result.name = `${String(key)}`;
     result.calls = calls;
     result.cpuPerCall = time / calls;
     result.callsPerTick = calls / totalTicks;
@@ -167,10 +167,10 @@ function outputProfilerData() {
   let output = "";
 
   // get function name max length
-  const longestName = (_.max(data, (d) => d.name.length)).name.length + 2;
+  // const longestName = (_.max(data, (d) => d.name.length)).name.length + 2;
 
   //// Header line
-  output += _.padRight("Function", longestName);
+  output += _.padRight("Function", 15);
   output += _.padLeft("Tot Calls", 12);
   output += _.padLeft("CPU/Call", 12);
   output += _.padLeft("Calls/Tick", 12);
@@ -179,7 +179,7 @@ function outputProfilerData() {
 
   ////  Data lines
   data.forEach((d) => {
-    output += _.padRight(`${d.name}`, longestName);
+    output += _.padRight(`${d.name}`, 15);
     output += _.padLeft(`${d.calls}`, 12);
     output += _.padLeft(`${d.cpuPerCall.toFixed(2)}ms`, 12);
     output += _.padLeft(`${d.callsPerTick.toFixed(2)}`, 12);

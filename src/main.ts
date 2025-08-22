@@ -3,6 +3,7 @@ import { Empire } from "core/empire";
 
 import * as Profiler from "Profiler";
 
+
 global.Profiler = Profiler.init();
 
 declare global {
@@ -27,6 +28,7 @@ declare global {
     interface Global {
       log: any;
       Profiler: any;
+      __PROFILER_ENABLED__: boolean;
     }
   }
 }
@@ -34,21 +36,26 @@ declare global {
 // When compiling TS to JS and bundling with rollup, the line numbers and file names in error messages change
 // This utility uses source maps to get the line numbers and file names of the original, TS source code
 
-ErrorMapper.wrapLoop(() => {
-
-  if(Game.time%5==0){
-    console.log(`Current game tick is ${Game.time}`);
-  }
+module.exports.loop = function() { //ErrorMapper.wrapLoop(() => {
+  // console.log(`CPU used at start of loop is ${Game.cpu.getUsed()}`);
 
   const empire = new Empire();
   empire.init();
   empire.run();
   empire.post();
 
+
+  if(Game.time%20==0){
+    console.log(`-----------------------------------`);
+    console.log(`Current game tick is ${Game.time}`);
+    console.log(`CPU used at end of loop is ${Game.cpu.getUsed()}`);
+    console.log(`Current CPU bucket is ${Game.cpu.bucket}`);
+    console.log(`-----------------------------------`);
+  }
   // // Automatically delete memory of missing creeps
   // for (const name in Memory.creeps) {
   //   if (!(name in Game.creeps)) {
   //     delete Memory.creeps[name];
   //   }
   // }
-});
+};
