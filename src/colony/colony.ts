@@ -2,7 +2,7 @@ import {getColonyMemory,getCreepMemory, getTaskMemory} from "core/memory";
 
 import "utils/roomPosition";
 import "utils/move";
-import { coreStamp, extensionStamp, spawnStamp } from "utils/stamps";
+import { coreStamp, extensionStamp, spawnStamp, towerStamp } from "utils/stamps";
 import { ConstructionManager } from "core/constructionManager";
 import { ColonyVisualizer } from "./colonyVisualiser";
 import {profile} from "Profiler";
@@ -111,6 +111,14 @@ export class Colony {
                     this.placeCoreStamp();
                     console.log("Placed core stamp for colony " + this.room.name);
                 }
+                const existingTowers = this.room.find(FIND_MY_STRUCTURES, {
+                    filter: (s): s is StructureTower => s.structureType === STRUCTURE_TOWER
+                });
+                const plannedTowers = this.memory.plannedConstructionSites.filter(site => site.structureType === STRUCTURE_TOWER);
+                if(existingTowers.length + plannedTowers.length == 0){
+                    this.placeTowerStamp();
+                    console.log("Placed tower stamp for colony " + this.room.name);
+                }
             }
         }
 
@@ -144,10 +152,10 @@ export class Colony {
 
     setFocusOnUpgrade(): void {
         if(this.room.controller){
-            if (this.room.controller.ticksToDowngrade < 2000) {
+            if (this.room.controller.ticksToDowngrade < 4000) {
                 this.memory.focusOnUpgrade = true;
             }
-            if (this.room.controller.ticksToDowngrade > 5000) {
+            if (this.room.controller.ticksToDowngrade > 8000) {
                 this.memory.focusOnUpgrade = false;
             }
         }
@@ -283,6 +291,19 @@ export class Colony {
         }
     }
 
+    getMinerNeed(): boolean {
+        /**
+         * Checks if the colony wants to spawn a miner, based on the number of source containers and existing miners
+         * @todo: if a miner is close to death then spawn one so that it can start heading towards the site?
+         */
+
+        const miners = this.room.find(FIND_MY_CREEPS, {
+            filter: (c) => c.memory.role === 'miner'
+        });
+
+        return miners.length < this.sourceContainers.length;
+    }
+
     getWorkerNeed(): boolean {
         const workers = _.filter(Game.creeps, (c:Creep) =>
         (c.memory as WorkerMemory).role == 'worker' &&
@@ -394,9 +415,29 @@ export class Colony {
                     creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
                 }
                 break;
+            case "REPAIR":
+                if (Game.getObjectById(task.targetId) === null) {
+                    task.status = `DONE`;
+                    delete creep.memory.taskId;
+                    break;
+                }
+                if (creep.store[RESOURCE_ENERGY] === 0) {
+                    task.status = `DONE`;
+                    delete creep.memory.taskId;
+                    break;
+                }
+                if (creep.repair(target) === ERR_NOT_IN_RANGE) {
+                    creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+                }
+                break;
             case 'HAUL':
                 // add a check that if the target is full of energy, the task is done
                 if (target instanceof StructureSpawn && target.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
+                    task.status = `DONE`;
+                    delete creep.memory.taskId;
+                    break;
+                }
+                if(target instanceof StructureContainer && target.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
                     task.status = `DONE`;
                     delete creep.memory.taskId;
                     break;
@@ -481,6 +522,30 @@ export class Colony {
             const closestHostile = tower.pos.findClosestByRange(FIND_HOSTILE_CREEPS);
             if (closestHostile) {
                 tower.attack(closestHostile);
+            }
+        }
+    }
+
+    placeTowerStamp() {
+        /**
+         * Similar logic to the corestamp - place the tower stamp at the nearest free point spiralling away from spawn
+         */
+        if(!this.spawns[0]) return;
+        // now spiral outwards from here, checking at each location (which isn't a wall) if the core stamp will fit with that position as the anchor
+        const spawnPos = this.spawns[0].pos;
+        const searchRadius = 5;
+        for (let r = 1; r <= searchRadius; r++) {
+            for (let x = -r; x <= r; x++) {
+                for (let y = -r; y <= r; y++) {
+                    if(Math.abs(x)!==r && Math.abs(y)!==r) continue; // Only check the outer ring of the square
+                    const pos = new RoomPosition(spawnPos.x + x, spawnPos.y + y, spawnPos.roomName);
+                    if (pos.canPlaceStamp(towerStamp)) {
+                        this.placeStampIntoMemory(pos, towerStamp);
+                        console.log(`Placed tower stamp for colony ${this.room.name} at ${pos}`);
+                        console.log(this.memory.plannedConstructionSites);
+                        return;
+                    }
+                }
             }
         }
     }

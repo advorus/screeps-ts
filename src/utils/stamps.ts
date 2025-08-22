@@ -86,4 +86,23 @@ export const coreStamp: Stamp = [
     {dx:1, dy:2, structureType: STRUCTURE_ROAD}
 ];
 
+export const towerStamp: Stamp = [
+    {dx:-1, dy:-1, structureType: STRUCTURE_TOWER},
+    {dx:0, dy:-1, structureType: STRUCTURE_TOWER},
+    {dx:1, dy:-1, structureType: STRUCTURE_TOWER},
+    {dx:-1, dy:0, structureType: STRUCTURE_TOWER},
+    {dx:1, dy:0, structureType: STRUCTURE_TOWER},
+    {dx:0, dy:1, structureType: STRUCTURE_TOWER},
+    {dx:-1, dy:-2, structureType: STRUCTURE_ROAD},
+    {dx:0, dy:-2, structureType: STRUCTURE_ROAD},
+    {dx:1, dy:-2, structureType: STRUCTURE_ROAD},
+    {dx:-2, dy: -1, structureType: STRUCTURE_ROAD},
+    {dx: 2, dy: -1, structureType: STRUCTURE_ROAD},
+    {dx:-2, dy:0, structureType: STRUCTURE_ROAD},
+    {dx:2, dy: 0, structureType: STRUCTURE_ROAD},
+    {dx:-1, dy:1, structureType: STRUCTURE_ROAD},
+    {dx:1, dy:1, structureType: STRUCTURE_ROAD},
+    {dx:0, dy:2, structureType: STRUCTURE_ROAD}
+]
+
 

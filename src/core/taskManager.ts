@@ -93,6 +93,9 @@ export class TaskManager {
                 if(task.type === 'PICKUP' && creep.store.getFreeCapacity() === 0) {
                     continue;
                 }
+                if(task.type == `REPAIR` && creep.store.getUsedCapacity(RESOURCE_ENERGY) === 0) {
+                    continue;
+                }
                 // only miners can pick up mine tasks
                 if(task.type === `MINE` && creep.memory.role !== `miner`) {
                     continue;
@@ -116,14 +119,14 @@ export class TaskManager {
                 //sum the amount of energy stored in these hauler creeps
                 const totalEnergy = assignedCreeps.reduce((sum, c) => sum + c.store.getUsedCapacity(RESOURCE_ENERGY), 0);
                 if ((task.type === 'HAUL') && totalEnergy < Game.getObjectById(task.targetId).store.getFreeCapacity(RESOURCE_ENERGY)) {
-                    console.log(`Creating a new ${task.type} task for ${task.targetId} in colony ${task.colony} because existing creeps cannot fulfil the energy requirement`);
+                    // console.log(`Creating a new ${task.type} task for ${task.targetId} in colony ${task.colony} because existing creeps cannot fulfil the energy requirement`);
                     this.createTask(task.type, Game.getObjectById(task.targetId) as AnyStructure | Source, task.colony as string, task.priority || 0);
                 }
                 if (task.type==`BUILD` && Game.getObjectById(task.targetId).progressTotal-Game.getObjectById(task.targetId).progress > creep.store.getUsedCapacity(RESOURCE_ENERGY)) {
-                    console.log(`Creating a new ${task.type} task for ${task.targetId} in colony ${task.colony} because existing creeps cannot fulfil the energy requirement`);
+                    // console.log(`Creating a new ${task.type} task for ${task.targetId} in colony ${task.colony} because existing creeps cannot fulfil the energy requirement`);
                     this.createTask(task.type, Game.getObjectById(task.targetId) as AnyStructure | Source, task.colony as string, task.priority || 0);
                 }
-                console.log(`Assigned task ${task.id} of type ${task.type} to creep ${creep.name}`);
+                // console.log(`Assigned task ${task.id} of type ${task.type} to creep ${creep.name}`);
                 return; // Return the assigned task ID
             }
         }
@@ -146,6 +149,31 @@ export class TaskManager {
         }
         this.createColonyBuildTasks(colony);
         this.createHaulTasks(colony);
+        this.createRepairTasks(colony);
+    }
+
+    static createRepairTasks(colony: ColonyLike) {
+    /**
+     * Create repair tasks for damaged structures in the colony
+     */
+    const damagedStructures = colony.room.find(FIND_STRUCTURES, {
+        filter: (structure) => structure.hits < structure.hitsMax
+    });
+    for (const structure of damagedStructures) {
+        //priority of the repair task should be 1 higher than the highest priority build task, otherwise 5
+        let priority = 5;
+        const existingBuildTasks = Object.values(Memory.tasks).filter(task =>
+            task.type === 'BUILD' &&
+            task.colony === colony.room.name &&
+            task.status !== 'DONE'
+        );
+        if (existingBuildTasks.length > 0) {
+            priority = Math.max(...existingBuildTasks.map(task => task.priority ? task.priority : 0)) + 1;
+        }
+        if(this.checkForExistingTasks(`REPAIR`, structure, colony.room.name) === 0) {
+            this.createTask(`REPAIR`, structure, colony.room.name, priority);
+        }
+    }
     }
 
     static createColonyBuildTasks(colony: ColonyLike) {
@@ -222,13 +250,17 @@ export class TaskManager {
                 if(focus.room.controller===undefined) return false;
                 return task.type === `UPGRADE` && task.targetId === focus.room.controller.id;
         });
+        if(focus.memory.focusOnUpgrade === true) {
+            // check if there is an existing upgrade task with priority >20
+            let existingHighPriorityUpgradeTask = existingUpgradeTask.find(task => task.priority !== undefined && task.priority > 20);
+            if(!existingHighPriorityUpgradeTask){
+                TaskManager.createTask(`UPGRADE`, focus.room.controller, focus.room.name,50);
+            }
+        }
         if (!existingUpgradeTask) {
             //check if the colony that the controller is in has a focus on upgrade
-            if (focus.memory.focusOnUpgrade) {
-                TaskManager.createTask(`UPGRADE`, focus.room.controller, focus.room.name,50);
-            } else{
-                TaskManager.createTask(`UPGRADE`, focus.room.controller, focus.room.name);
-            }
+            TaskManager.createTask(`UPGRADE`, focus.room.controller, focus.room.name);
+
         }
         if( existingUpgradeTask.length<4){
             TaskManager.createTask(`UPGRADE`, focus.room.controller, focus.room.name,-5);
@@ -293,7 +325,7 @@ export class TaskManager {
         if(focus.room.energyCapacityAvailable>focus.room.energyAvailable){
             // console.log(`Creating fill tasks...`);
             focus.fillerContainers.forEach(container => {
-                if (container.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
+                if (container.store.getUsedCapacity(RESOURCE_ENERGY) > 0) {
                     if (TaskManager.checkForExistingTasks(`FILL`, container, focus.room.name) === 0) {
                         TaskManager.createTask(`FILL`, container, focus.room.name, 9);
                     }

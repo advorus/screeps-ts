@@ -31,6 +31,14 @@ export class Empire {
     }
 
     run() {
+        this.memory.cpuUsage ??= [];
+        this.memory.cpuUsage.push(Game.cpu.getUsed());
+        if(this.memory.cpuUsage.length > 100) this.memory.cpuUsage.shift();
+        const avgCpu = _.sum(this.memory.cpuUsage) / this.memory.cpuUsage.length;
+        if (Game.time % 25 === 0) {
+            console.log(`Empire: Average CPU usage over last 100 ticks: ${avgCpu}`);
+        }
+
         // Empire-level task creation
         TaskManager.createTasks(this);
         TaskManager.reprioritiseTasks(this);
@@ -40,6 +48,10 @@ export class Empire {
             if (colony.getWorkerNeed()) {
                 // console.log(`Empire: Spawning worker in ${colony.room.name}`);
                 colony.spawnCreep('worker'); // Empire triggers spawn, colony implements details
+            }
+            if (colony.getMinerNeed()) {
+                // console.log(`Empire: Spawning miner in ${colony.room.name}`);
+                colony.spawnCreep('miner'); // Empire triggers spawn, colony implements details
             }
         }
 
@@ -79,7 +91,7 @@ export class Empire {
             const task = getTaskMemory(taskId);
             // remove completed tasks
             if(task.status === `DONE`) {
-                console.log(`Task ${task.id} completed and so is being deleted`);
+                // console.log(`Task ${task.id} completed and so is being deleted`);
                 delete Memory.tasks[taskId];
             }
             // remove assigned creeps from tasks if the creep is no longer in the game

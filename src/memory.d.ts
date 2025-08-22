@@ -42,6 +42,7 @@ declare global {
         lastExpansion?: number;
         stats?: Record<string, any>;
         lastTick?: number;
+        cpuUsage?: number[];
     }
 
     interface WorkerMemory extends CreepMemory {
@@ -50,7 +51,7 @@ declare global {
 
     interface TaskMemory {
         id?: string;
-        type?: 'HARVEST' | "HAUL" | "BUILD" | "UPGRADE" | "MINE" | "SCOUT" | "PICKUP" | "FILL";
+        type?: 'HARVEST' | "HAUL" | "BUILD" | "UPGRADE" | "MINE" | "SCOUT" | "PICKUP" | "FILL" | "REPAIR";
         targetId?: Id<any>;
         assignedCreep?: string;
         status?: "PENDING" | "IN_PROGRESS" | "DONE";
