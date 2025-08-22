@@ -59,7 +59,9 @@ export class Colony {
         this.memory.upgradeContainerIds ??= [];
         this.memory.lastStampRCL ??= 0;
         this.memory.plannedConstructionSites ??= [];
+        this.memory.focusOnUpgrade ??= false;
 
+        this.setFocusOnUpgrade();
         this.setFillerContainerIds();
         this.setUpgradeContainerIds();
 
@@ -113,6 +115,17 @@ export class Colony {
 
         this.runTowers();
         this.colonyVisualizer?.run();
+    }
+
+    setFocusOnUpgrade(): void {
+        if(this.room.controller){
+            if (this.room.controller.ticksToDowngrade < 2000) {
+                this.memory.focusOnUpgrade = true;
+            }
+            if (this.room.controller.ticksToDowngrade > 5000) {
+                this.memory.focusOnUpgrade = false;
+            }
+        }
     }
 
     setFillerContainerIds(): void {

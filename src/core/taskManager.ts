@@ -134,7 +134,7 @@ export class TaskManager {
     static createColonyTasks(colony: ColonyLike) {
         this.createSourceTasks(colony);
         if(colony.room.controller) {
-            this.createUpgradeTasks(colony.room.controller);
+            this.createUpgradeTasks(colony);
         }
         this.createColonyBuildTasks(colony);
         this.createHaulTasks(colony);
@@ -207,15 +207,23 @@ export class TaskManager {
         ).length;
     }
 
-    static createUpgradeTasks(focus: StructureController){
+    static createUpgradeTasks(focus: ColonyLike){
+        if(focus.room.controller === undefined) return;
         const existingUpgradeTask = Object.values(getAllTaskMemory()).filter(
-            task => task.type === `UPGRADE` && task.targetId === focus.id
-        );
+            task => {
+                if(focus.room.controller===undefined) return false;
+                return task.type === `UPGRADE` && task.targetId === focus.room.controller.id;
+        });
         if (!existingUpgradeTask) {
-            TaskManager.createTask(`UPGRADE`, focus, focus.room.name);
+            //check if the colony that the controller is in has a focus on upgrade
+            if (focus.memory.focusOnUpgrade) {
+                TaskManager.createTask(`UPGRADE`, focus.room.controller, focus.room.name,50);
+            } else{
+                TaskManager.createTask(`UPGRADE`, focus.room.controller, focus.room.name);
+            }
         }
         if( existingUpgradeTask.length<4){
-            TaskManager.createTask(`UPGRADE`, focus, focus.room.name,-5);
+            TaskManager.createTask(`UPGRADE`, focus.room.controller, focus.room.name,-5);
         }
     }
 

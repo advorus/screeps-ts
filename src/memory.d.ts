@@ -34,7 +34,7 @@ declare global {
         towerIds?: Id<StructureTower>[];
         lastStampRCL?: number;
         plannedConstructionSites?: {pos: RoomPosition, structureType: BuildableStructureConstant, priority: number}[];
-
+        focusOnUpgrade?: boolean;
     }
 
     interface EmpireMemory {
