@@ -1,6 +1,10 @@
 import { ErrorMapper } from "utils/ErrorMapper";
 import { Empire } from "core/empire";
 
+import * as Profiler from "Profiler";
+
+global.Profiler = Profiler.init();
+
 declare global {
   /*
     Example types, expand on these or remove them and add your own.
@@ -22,13 +26,16 @@ declare global {
   namespace NodeJS {
     interface Global {
       log: any;
+      Profiler: any;
     }
   }
 }
 
 // When compiling TS to JS and bundling with rollup, the line numbers and file names in error messages change
 // This utility uses source maps to get the line numbers and file names of the original, TS source code
-export const loop =  () => { //ErrorMapper.wrapLoop(() => {
+
+ErrorMapper.wrapLoop(() => {
+
   if(Game.time%5==0){
     console.log(`Current game tick is ${Game.time}`);
   }
@@ -44,4 +51,4 @@ export const loop =  () => { //ErrorMapper.wrapLoop(() => {
   //     delete Memory.creeps[name];
   //   }
   // }
-};
+});

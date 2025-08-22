@@ -1,3 +1,6 @@
+import {profile} from "Profiler";
+
+@profile
 export class ConstructionManager {
     static placeConstructionSites(room: Room, plannedSites: {pos: RoomPosition, structureType: BuildableStructureConstant, priority: number}[]) {
         /**

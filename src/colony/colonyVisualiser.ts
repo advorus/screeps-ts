@@ -1,6 +1,8 @@
 import { getAllTaskMemory } from "core/memory";
 import { Colony } from "./colony";
+import {profile} from "Profiler";
 
+@profile
 export class ColonyVisualizer {
     colony: Colony;
 
@@ -106,3 +108,4 @@ export class ColonyVisualizer {
         }
     }
 }
+

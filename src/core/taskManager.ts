@@ -3,7 +3,9 @@
 import { getAllTaskMemory, getCreepMemory, getTaskMemory } from "./memory";
 // import { Colony } from "colony/colony";
 // import { Empire } from "./empire";
+import {profile} from "Profiler";
 
+@profile
 export class TaskManager {
     static createTask(type: TaskMemory['type'], target: AnyStructure | Source | ConstructionSite | Resource, colony: string, priority:number = 0, role:string|undefined = undefined): string {
         if(!Memory.tasks) {
@@ -40,16 +42,21 @@ export class TaskManager {
          */
         for (const colony of empire.colonies) {
             let multiple_maxes = false;
+            let max_target = undefined;
             const pendingBuildTasks = getAllTaskMemory().filter(s=>s.type === 'BUILD' && s.colony === colony.room.name && s.status === 'PENDING');
             for (const task of pendingBuildTasks) {
                 // if there are multiple tasks with the same maximum priority level, one of the tasks should have its priority increased by 1
                 const maxPriority = Math.max(...pendingBuildTasks.map(t => t.priority || 0));
                 if (task.priority === maxPriority) {
                     if (multiple_maxes) {
-                        task.priority = (task.priority) + 1;
-                        break
+                        if(max_target!=task.targetId){
+                            task.priority = (task.priority) + 1;
+                            break;
+                        }
+
                     }
                     multiple_maxes = true;
+                    max_target = task.targetId;
                 }
 
             }
@@ -264,7 +271,8 @@ export class TaskManager {
                     }
                 });
                 // Create a haul task for extensions
-                focus.extensions.filter(e=>e.store.getFreeCapacity(RESOURCE_ENERGY) > 0).forEach(extension => {
+                console.log(focus.extensions);
+                focus.extensions.filter(e=>e.store[RESOURCE_ENERGY] < e.store.getCapacity(RESOURCE_ENERGY)).forEach(extension => {
                     if (TaskManager.checkForExistingTasks(`HAUL`, extension, focus.room.name) === 0) {
                         TaskManager.createTask(`HAUL`, extension, focus.room.name,10);
                     }

@@ -1,12 +1,13 @@
 import { Colony } from "colony/colony";
 import { getEmpireMemory,getCreepMemory, getTaskMemory } from "core/memory";
 import { TaskManager } from "core/taskManager";
+import { profile } from "Profiler";
 
 // Empire class to manage multiple colonies
 // This class is responsible for high-level management of colonies, task creation, and spawning decisions
 // It does not directly control creeps or tasks, but coordinates the overall empire strategy
 
-
+@profile
 export class Empire {
     colonies: Colony[];
     memory: EmpireMemory;
@@ -92,3 +93,4 @@ export class Empire {
         // console.log(Game.cpu.getUsed());
     }
 }
+

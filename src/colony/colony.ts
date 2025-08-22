@@ -5,11 +5,13 @@ import "utils/move";
 import { extensionStamp, spawnStamp } from "utils/stamps";
 import { ConstructionManager } from "core/constructionManager";
 import { ColonyVisualizer } from "./colonyVisualiser";
+import {profile} from "Profiler";
 
 // Colony class to manage a single room
 // This class is responsible for managing tasks, spawning creeps, and running the colony logic
 // It does not directly control the empire or other colonies, but implements the details of the colony's operations
 
+@profile
 export class Colony {
     room: Room;
     memory: ColonyMemory;
@@ -47,14 +49,13 @@ export class Colony {
             }).map(s => s.id);
         }
 
-        if(!this.memory.extensionIds) {
-            this.memory.extensionIds = this.room.find(FIND_MY_STRUCTURES, {
-                filter: (s): s is StructureExtension => s.structureType === STRUCTURE_EXTENSION
-            }).map(s => s.id);
-        }
+        this.memory.extensionIds ??= [];
+        this.updateExtensionIds();
+
         this.memory.storageId ??= this.room.find(FIND_STRUCTURES, {
             filter: (s): s is StructureStorage => s.structureType === STRUCTURE_STORAGE
         }).map(s => s.id)[0];
+
         this.memory.fillerContainerIds ??= [];
         this.memory.upgradeContainerIds ??= [];
         this.memory.lastStampRCL ??= 0;
@@ -115,6 +116,12 @@ export class Colony {
 
         this.runTowers();
         this.colonyVisualizer?.run();
+    }
+
+    updateExtensionIds(): void {
+        this.memory.extensionIds = this.room.find(FIND_STRUCTURES, {
+            filter: (s): s is StructureExtension => s.structureType === STRUCTURE_EXTENSION
+        }).map(s => s.id);
     }
 
     setFocusOnUpgrade(): void {
@@ -184,13 +191,13 @@ export class Colony {
             return [WORK, CARRY, MOVE, MOVE];
         }
         else {
-            const num_work_parts = Math.floor(this.room.energyCapacityAvailable / 100);
+            const num_work_parts = Math.floor((this.room.energyCapacityAvailable-150) / 100);
             return Array(num_work_parts).fill(WORK).concat([MOVE, MOVE, CARRY]);
         }
     }
 
     minerBodyParts(): BodyPartConstant[] {
-        const num_work_parts = Math.floor(this.room.energyCapacityAvailable / 100);
+        const num_work_parts = Math.floor((this.room.energyCapacityAvailable-50) / 100);
         return Array(num_work_parts).fill(WORK).concat(MOVE);
     }
 
@@ -346,6 +353,11 @@ export class Colony {
                     break;
                 }
             case 'BUILD':
+                if (Game.getObjectById(task.targetId) === null) {
+                    task.status = `DONE`;
+                    delete creep.memory.taskId;
+                    break;
+                }
                 if (creep.store[RESOURCE_ENERGY] === 0) {
                     task.status = `DONE`;
                     delete creep.memory.taskId;
@@ -495,4 +507,3 @@ export class Colony {
     }
 
 }
-
