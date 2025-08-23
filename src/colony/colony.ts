@@ -32,6 +32,7 @@ export class Colony {
     }
 
     init() {
+
         // cache sources, spawns, creeps for this room
         this.memory.lastSeen = Game.time;
         if(!this.memory.sourceIds) {
@@ -44,10 +45,12 @@ export class Colony {
         }
 
         if(!this.memory.towerIds) {
-            this.memory.towerIds = this.room.find(FIND_MY_STRUCTURES, {
+            this.memory.towerIds = this.room.find(FIND_STRUCTURES, {
                 filter: (s): s is StructureTower => s.structureType === STRUCTURE_TOWER
             }).map(s => s.id);
         }
+
+        this.updateTowerIds();
 
         this.memory.extensionIds ??= [];
         this.updateExtensionIds();
@@ -115,7 +118,8 @@ export class Colony {
                     filter: (s): s is StructureTower => s.structureType === STRUCTURE_TOWER
                 });
                 const plannedTowers = this.memory.plannedConstructionSites.filter(site => site.structureType === STRUCTURE_TOWER);
-                if(existingTowers.length + plannedTowers.length == 0){
+                // console.log(`Existing towers: ${existingTowers.length}, Planned towers: ${plannedTowers.length}`);
+                if(existingTowers.length + plannedTowers.length < 5){
                     this.placeTowerStamp();
                     console.log("Placed tower stamp for colony " + this.room.name);
                 }
@@ -142,6 +146,16 @@ export class Colony {
 
         this.runTowers();
         this.colonyVisualizer?.run();
+    }
+
+    clearPlannedConstructionSites(): void {
+        this.memory.plannedConstructionSites = [];
+    }
+
+    updateTowerIds(): void {
+        this.memory.towerIds = this.room.find(FIND_STRUCTURES, {
+            filter: (s): s is StructureTower => s.structureType === STRUCTURE_TOWER
+        }).map(s => s.id);
     }
 
     updateExtensionIds(): void {
@@ -217,13 +231,20 @@ export class Colony {
             return [WORK, CARRY, MOVE, MOVE];
         }
         else {
-            const num_work_parts = Math.floor((this.room.energyCapacityAvailable-150) / 100);
-            return Array(num_work_parts).fill(WORK).concat([MOVE, MOVE, CARRY]);
+            const num_work_parts = Math.min(Math.floor((this.room.energyCapacityAvailable) / 200),4);
+            const body: BodyPartConstant[] = [];
+            for(let i=0;i<num_work_parts;i++){
+                body.push(WORK);
+                body.push(CARRY);
+                body.push(MOVE);
+            }
+            // console.log(`Colony ${this.room.name} is spawning a worker with body: ${body}`);
+            return body;
         }
     }
 
     minerBodyParts(): BodyPartConstant[] {
-        const num_work_parts = Math.max(Math.floor((this.room.energyCapacityAvailable-50) / 100),5);
+        const num_work_parts = Math.min(Math.floor((this.room.energyCapacityAvailable-50) / 100),5);
         return Array(num_work_parts).fill(WORK).concat(MOVE);
     }
 
@@ -239,8 +260,17 @@ export class Colony {
             const container = source.pos.findInRange(FIND_STRUCTURES, 1, {
                 filter: (s) => s.structureType === STRUCTURE_CONTAINER
             })[0];
+            //also check for either a planned container or an existing container construction site
+            const existingContainerConstructionSite = source.pos.findInRange(FIND_CONSTRUCTION_SITES, 1, {
+                filter: (s) => s.structureType === STRUCTURE_CONTAINER
+            })[0];
+            //also check for either a planned container or an existing container construction site
+            const existingPlannedContainer = this.memory.plannedConstructionSites?.find(s => {
+                const containerPos = new RoomPosition(s.pos.x, s.pos.y, s.pos.roomName);
+                return s.structureType === STRUCTURE_CONTAINER && containerPos.isNearTo(source.pos);
+            });
 
-            if (!container) {
+            if (!container && !existingContainerConstructionSite && !existingPlannedContainer) {
                 const nearestOpenTile = source.pos.findNearestOpenTile(1, 1, true, true);
                 if (nearestOpenTile!==null){
                     const newContainer = this.memory.plannedConstructionSites?.push({
@@ -281,6 +311,22 @@ export class Colony {
         })[0];
         if(existingContainer) return;
 
+        const existingContainerSite = this.room.controller.pos.findInRange(FIND_CONSTRUCTION_SITES, 4, {
+            filter: (s) => s.structureType === STRUCTURE_CONTAINER
+        })[0];
+
+        const existingPlannedContainer = this.memory.plannedConstructionSites?.find(s => {
+            const containerPos = new RoomPosition(s.pos.x, s.pos.y, s.pos.roomName);
+            //get the distance of the container to the controller
+            if(this.room.controller) {
+                const distance = containerPos.getRangeTo(this.room.controller.pos);
+                return s.structureType === STRUCTURE_CONTAINER && distance < 4;
+            }
+            return false;
+        });
+        if(existingContainerSite) return;
+        if(existingPlannedContainer) return;
+
         // if it doesn't then place one
         const containerPos = this.room.controller.pos.findNearestOpenTile(4, 3, true, true);
         if (containerPos) {
@@ -316,7 +362,19 @@ export class Colony {
             !task.assignedCreep
         );
 
+        // console.log(`Colony ${this.room.name} has ${workers.length} workers and ${unassignedWorkerTasks.length} unassigned worker tasks`);
+
+        const miners = this.room.find(FIND_MY_CREEPS, {
+            filter: (c) => c.memory.role === 'miner'
+        });
+
         if (workers.length < 12){
+            // console.log(`in here`);
+            if(miners.length>0){
+                if (workers.length < 6) {
+                    return true;
+                }
+            }
             return unassignedWorkerTasks.length > 0;
         }
         else{
@@ -437,12 +495,18 @@ export class Colony {
                 break;
             case 'HAUL':
                 // add a check that if the target is full of energy, the task is done
+                // creep.say(`Checking HAUL task for creep ${creep.name} and target ${target.id}`);
                 if (target instanceof StructureSpawn && target.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
                     task.status = `DONE`;
                     delete creep.memory.taskId;
                     break;
                 }
                 if(target instanceof StructureContainer && target.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
+                    task.status = `DONE`;
+                    delete creep.memory.taskId;
+                    break;
+                }
+                if(target instanceof StructureExtension && target.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
                     task.status = `DONE`;
                     delete creep.memory.taskId;
                     break;
@@ -547,7 +611,7 @@ export class Colony {
                     if (pos.canPlaceStamp(towerStamp)) {
                         this.placeStampIntoMemory(pos, towerStamp);
                         console.log(`Placed tower stamp for colony ${this.room.name} at ${pos}`);
-                        console.log(this.memory.plannedConstructionSites);
+                        // console.log(this.memory.plannedConstructionSites);
                         return;
                     }
                 }
@@ -571,7 +635,7 @@ export class Colony {
                     if (pos.canPlaceStamp(coreStamp)) {
                         this.placeStampIntoMemory(pos, coreStamp);
                         console.log(`Placed core stamp for colony ${this.room.name} at ${pos}`);
-                        console.log(this.memory.plannedConstructionSites);
+                        // console.log(this.memory.plannedConstructionSites);
                         return;
                     }
                 }
@@ -624,7 +688,7 @@ export class Colony {
             if (anchor.canPlaceStamp(spawnStamp)) {
                 this.placeStampIntoMemory(anchor, spawnStamp);
                 console.log(`Placed spawn stamp for colony ${this.room.name} at ${anchor}`);
-                console.log(this.memory.plannedConstructionSites);
+                // console.log(this.memory.plannedConstructionSites);
                 break;
             }
         }

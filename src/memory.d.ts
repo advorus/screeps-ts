@@ -84,5 +84,6 @@ declare global {
         extensions: StructureExtension[];
         upgradeContainers: StructureContainer[];
         fillerContainers: StructureContainer[];
+        towers: StructureTower[];
     }
 }

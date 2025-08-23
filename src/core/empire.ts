@@ -31,13 +31,6 @@ export class Empire {
     }
 
     run() {
-        this.memory.cpuUsage ??= [];
-        this.memory.cpuUsage.push(Game.cpu.getUsed());
-        if(this.memory.cpuUsage.length > 100) this.memory.cpuUsage.shift();
-        const avgCpu = _.sum(this.memory.cpuUsage) / this.memory.cpuUsage.length;
-        if (Game.time % 25 === 0) {
-            console.log(`Empire: Average CPU usage over last 100 ticks: ${avgCpu}`);
-        }
 
         // Empire-level task creation
         TaskManager.createTasks(this);
@@ -47,6 +40,7 @@ export class Empire {
         for (const colony of this.colonies) {
             if (colony.getWorkerNeed()) {
                 // console.log(`Empire: Spawning worker in ${colony.room.name}`);
+
                 colony.spawnCreep('worker'); // Empire triggers spawn, colony implements details
             }
             if (colony.getMinerNeed()) {
@@ -103,6 +97,14 @@ export class Empire {
                 }
 
             }
+        }
+
+        this.memory.cpuUsage ??= [];
+        this.memory.cpuUsage.push(Game.cpu.getUsed());
+        if(this.memory.cpuUsage.length > 100) this.memory.cpuUsage.shift();
+        const avgCpu = _.sum(this.memory.cpuUsage) / this.memory.cpuUsage.length;
+        if (Game.time % 25 === 0) {
+            console.log(`Empire: Average CPU usage over last 100 ticks: ${avgCpu}`);
         }
         // console.log(Game.cpu.getUsed());
     }

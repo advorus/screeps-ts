@@ -262,8 +262,8 @@ export class TaskManager {
             TaskManager.createTask(`UPGRADE`, focus.room.controller, focus.room.name);
 
         }
-        if( existingUpgradeTask.length<4){
-            TaskManager.createTask(`UPGRADE`, focus.room.controller, focus.room.name,-5);
+        if( existingUpgradeTask.length<8){
+            TaskManager.createTask(`UPGRADE`, focus.room.controller, focus.room.name,-10);
         }
     }
 
@@ -286,6 +286,17 @@ export class TaskManager {
                     }
                 }
             }
+            console.log(`Number of towers: ${focus.towers.length} in ${focus}`);
+            if(focus.towers.length>0){
+
+                for(const tower of focus.towers){
+                    if(tower.store.getFreeCapacity(RESOURCE_ENERGY)>0){
+                        if(TaskManager.checkForExistingTasks(`HAUL`, tower, focus.room.name)===0){
+                            TaskManager.createTask(`HAUL`, tower, focus.room.name,8);
+                        }
+                    }
+                }
+            }
             // haul to the filler containers
             if (focus.fillerContainers.length > 0){
                 for(const fillerContainer of focus.fillerContainers){
@@ -304,7 +315,7 @@ export class TaskManager {
                     }
                 });
                 // Create a haul task for extensions
-                console.log(focus.extensions);
+                // console.log(focus.extensions);
                 focus.extensions.filter(e=>e.store[RESOURCE_ENERGY] < e.store.getCapacity(RESOURCE_ENERGY)).forEach(extension => {
                     if (TaskManager.checkForExistingTasks(`HAUL`, extension, focus.room.name) === 0) {
                         TaskManager.createTask(`HAUL`, extension, focus.room.name,10);

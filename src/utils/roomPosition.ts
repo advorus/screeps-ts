@@ -1,3 +1,5 @@
+import { getColonyMemory } from "core/memory";
+
 export {};
 
 declare global {
@@ -95,6 +97,17 @@ RoomPosition.prototype.canPlaceStamp = function(stamp: Stamp): boolean {
         for (const structure of structures) {
             // check to see if the structuretype of the structure matches the stamp
             if (structure.structureType !== structureType) return false; // Can't place if there's a different structure
+        }
+        const colonyMemory = getColonyMemory(this.roomName);
+        if(colonyMemory !== undefined)
+        {
+            const plannedConstructionSites = colonyMemory.plannedConstructionSites?.filter( s=>
+                s.pos.x === pos.x && s.pos.y === pos.y
+            );
+            for(const site of plannedConstructionSites? plannedConstructionSites: []) {
+                // check to see if the structuretype of the site matches the stamp
+                if (site.structureType !== structureType) return false; // Can't place if there's a different construction site planned
+            }
         }
     }
     return true;

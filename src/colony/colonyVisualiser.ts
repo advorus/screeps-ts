@@ -106,6 +106,29 @@ export class ColonyVisualizer {
         for(const container of this.colony.sourceContainers) {
             visual.circle(container.pos, {radius: 0.5, fill: 'green', opacity: 0.1});
         }
+        // for(const site of this.colony.memory.plannedConstructionSites ?? []) {
+        //     // indicate the type of structure at each location using color coding
+        //     const colorMap: Record<BuildableStructureConstant, string> = {
+        //         [STRUCTURE_SPAWN]: 'pink',
+        //         [STRUCTURE_EXTENSION]: 'blue',
+        //         [STRUCTURE_TOWER]: 'green',
+        //         [STRUCTURE_STORAGE]: 'yellow',
+        //         [STRUCTURE_CONTAINER]: 'orange',
+        //         [STRUCTURE_NUKER]: 'red',
+        //         [STRUCTURE_ROAD]: 'cyan',
+        //         [STRUCTURE_RAMPART]: 'magenta',
+        //         [STRUCTURE_LINK]: 'purple',
+        //         [STRUCTURE_WALL]: 'grey',
+        //         [STRUCTURE_POWER_SPAWN]: 'lime',
+        //         [STRUCTURE_EXTRACTOR]: 'brown',
+        //         [STRUCTURE_LAB]: 'brown',
+        //         [STRUCTURE_TERMINAL]: 'orange',
+        //         [STRUCTURE_OBSERVER]: 'lightblue',
+        //         [STRUCTURE_FACTORY]: 'brown'
+        //     };
+        //     const sitePos = new RoomPosition(site.pos.x, site.pos.y, this.colony.room.name);
+        //     visual.circle(sitePos, {radius: 0.5, fill: colorMap[site.structureType]??'white', opacity: 0.1});
+        // }
     }
 }
 

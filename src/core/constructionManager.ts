@@ -25,19 +25,22 @@ export class ConstructionManager {
                 const existingSite = room.lookForAt(LOOK_CONSTRUCTION_SITES, pos).filter(s => s.structureType === site.structureType);
                 const existingStructure = room.lookForAt(LOOK_STRUCTURES, pos).filter(s => s.structureType === site.structureType);
                 if (existingSite.length === 0 && existingStructure.length === 0) {
-                    console.log(`Placing construction site for ${site.structureType} at ${pos.x}, ${pos.y} in room ${room.name}`);
+
                     if (site.structureType === STRUCTURE_SPAWN) {
                         pos.createConstructionSite(site.structureType, `Spawn_${Game.time}_${room.name}`);
+                        console.log(`Placing construction site for ${site.structureType} at ${pos.x}, ${pos.y} in room ${room.name}`);
                     }
                     else if (site.structureType == STRUCTURE_ROAD){
                         // only place it if is next to a structure which is not a road
                         const adjacentStructures = pos.findInRange(FIND_MY_STRUCTURES, 1);
                         if(adjacentStructures.length>0){
                             pos.createConstructionSite(site.structureType);
+                            console.log(`Placing construction site for ${site.structureType} at ${pos.x}, ${pos.y} in room ${room.name}`);
                         }
                     }
                     else{
                         pos.createConstructionSite(site.structureType);
+                        console.log(`Placing construction site for ${site.structureType} at ${pos.x}, ${pos.y} in room ${room.name}`);
                     }
                 }
 
