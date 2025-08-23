@@ -529,6 +529,11 @@ export class Colony {
                     delete creep.memory.taskId;
                     break;
                 }
+                if(target instanceof StructureTower && target.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
+                    task.status = `DONE`;
+                    delete creep.memory.taskId;
+                    break;
+                }
                 if (creep.store[RESOURCE_ENERGY] === 0) {
                     task.status = `DONE`;
                     delete creep.memory.taskId;
