@@ -86,25 +86,19 @@ RoomPosition.prototype.canPlaceStamp = function(stamp: Stamp): boolean {
     // console.log(`Checking if can place stamp at ${this.x}, ${this.y}`);
     for (const {dx, dy, structureType} of stamp) {
         const pos = new RoomPosition(this.x + dx, this.y + dy, this.roomName);
-        if (pos.lookFor(LOOK_TERRAIN)[0] === 'wall') return false; // Can't place on walls
+        if (pos.lookFor(LOOK_TERRAIN)[0] === "wall") return false; // Can't place on walls
         // need to check whether the construction sites/structures match those in the stamp, rather than just checking for their existence
-        const constructionSites = pos.lookFor(LOOK_CONSTRUCTION_SITES);
-        const structures = pos.lookFor(LOOK_STRUCTURES);
-        for(const site of constructionSites) {
-            // check to see if the structuretype of the site matches the stamp
-            if (site.structureType !== structureType) return false; // Can't place if there's a different construction site
-        }
-        for (const structure of structures) {
-            // check to see if the structuretype of the structure matches the stamp
-            if (structure.structureType !== structureType) return false; // Can't place if there's a different structure
-        }
+        const nonMatchingConstructionSites = pos.lookFor(LOOK_CONSTRUCTION_SITES).filter(s=>s.structureType!==structureType);
+        const nonMatchingStructures = pos.lookFor(LOOK_STRUCTURES).filter(s=>s.structureType!==structureType);
+        if (nonMatchingConstructionSites.length>0) return false;
+        if (nonMatchingStructures.length>0) return false;
+
         const colonyMemory = getColonyMemory(this.roomName);
         if(colonyMemory !== undefined)
         {
             const plannedSitesAtLocation = colonyMemory.plannedConstructionSites?.filter(s=> s.structureType !== structureType && s.pos.x == pos.x && s.pos.y == pos.y);
-            if(plannedSitesAtLocation?.length || -1 > 0 ){
-                return false;
-            }
+            if(plannedSitesAtLocation?.length || -1 > 0 ) return false;
+
             // for(const site of plannedConstructionSites? plannedConstructionSites: []) {
             //     // check to see if the structuretype of the site matches the stamp
             //     if(site.structureType == STRUCTURE_TOWER){
