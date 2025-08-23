@@ -19,7 +19,12 @@ Creep.prototype.safeMoveTo = function(target: RoomPosition | RoomObject, opts?: 
     });
     if (hostiles.length > 0) {
         this.say('⚠️ Hostile!');
-        return ERR_NO_PATH; // Or implement flee logic
+        // find the nearest hostile and move by path 4 cells away\
+        const nearestHostile = this.pos.findClosestByRange(hostiles);
+        if(nearestHostile !== null){
+            const path = PathFinder.search(this.pos, {pos: nearestHostile.pos, range:3}, {flee: true}).path;
+            this.moveByPath(path);
+        }
     }
     return this.moveTo(pos, opts);
 }

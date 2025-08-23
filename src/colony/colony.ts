@@ -141,6 +141,18 @@ export class Colony {
         for(const creep of this.creeps) {
             if(getCreepMemory(creep.name).taskId) {
                 this.runTask(creep);
+            } else{
+                //if sitting next to a source then move away from it
+                for(let source of this.sources){
+                    //check if the creep is near that source;
+                    //if it is then move away
+                    if(creep.pos.isNearTo(source.pos)){
+                        //find the nearest path that takes the creep more than 1 tile away from the source
+                        let path = PathFinder.search(creep.pos, {pos: source.pos, range:1}, {flee:true}).path;
+                        creep.moveByPath(path);
+                        break;
+                    }
+                }
             }
         }
 
