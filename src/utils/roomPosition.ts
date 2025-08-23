@@ -6,8 +6,10 @@ declare global {
     interface RoomPosition {
         getFreeTiles(): RoomPosition[];
         findNearestOpenTile(maxRange?: number, minOpenAdjacent?: number, excludeConstructionSites?: boolean, excludeStructures?: boolean): RoomPosition | null;
-        findClearSpot(stamp: {dx:number, dy:number, structureType: BuildableStructureConstant}[]): RoomPosition | null;
+        findNearestValidStampLocation(stamp: {dx:number, dy:number, structureType: BuildableStructureConstant}[]): RoomPosition | null;
         canPlaceStamp(stamp: Stamp) : boolean;
+        isInsideRoom(): boolean;
+
     }
 }
 
@@ -72,11 +74,36 @@ RoomPosition.prototype.findNearestOpenTile = function(
     return null;
 }
 
-RoomPosition.prototype.findClearSpot = function(stamp: {dx:number, dy:number, structureType: BuildableStructureConstant}[]): RoomPosition | null {
+RoomPosition.prototype.findNearestValidStampLocation = function(stamp: {dx:number, dy:number, structureType: BuildableStructureConstant}[]): RoomPosition | null {
     /**
-     *  Finds the nearest clear spot for the given stamp to this room position.
+     *  Finds the nearest clear spot for the given stamp to this room position, spiralling outwards for search. Will go up to a radius of 50 (to cover the whole room)
+     *  Returns null if none found
      */
+
+    const maxRadius = 50;
+
+    for(let r=0;r<maxRadius;r++){
+        for(let i=-r;i<=r;i++){
+            for(let j=-r;j<=r;j++){
+                if(i!!==r && j!== r) continue;
+                const positionToCheck = new RoomPosition(this.x+i, this.y+j, this.roomName);
+                if(positionToCheck.isInsideRoom()){
+                    if(positionToCheck.canPlaceStamp(stamp)){
+                        return positionToCheck;
+                    }
+                }
+            }
+        }
+    }
+
     return null;
+}
+
+RoomPosition.prototype.isInsideRoom = function(): boolean {
+    /**
+     * Checks that the x and y positions are inside the room
+     */
+    return true;
 }
 
 RoomPosition.prototype.canPlaceStamp = function(stamp: Stamp): boolean {
