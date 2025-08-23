@@ -94,39 +94,39 @@ export class Colony {
         // Place spawn stamp if the controller level increased
         if (this.room.controller !== undefined) {
             if (this.memory.lastStampRCL < this.room.controller.level) {
-                // check if there are three spawns either built or planned
-                const spawnsOnMap = this.room.find(FIND_MY_SPAWNS);
-                const plannedSpawns = this.memory.plannedConstructionSites.filter(site => site.structureType === STRUCTURE_SPAWN);
-                if(spawnsOnMap.length + plannedSpawns.length < 3){
-                    this.placeSpawnStamp();
-                        console.log("Placed spawn stamp for colony " + this.room.name);
-                }
+                //update the stamp level
                 this.memory.lastStampRCL = this.room.controller.level;
+
+                // check if there are three spawns either built or planned
+                if(this.getTotalStructuresIncludingPlanned(STRUCTURE_SPAWN) < 3){
+                    this.placeSpawnStamp();
+                    console.log("Placed spawn stamp for colony " + this.room.name);
+                }
+
+                // place containers (source and upgrader) at level 3
                 if(this.room.controller.level == 3) {
                     this.placeContainers();
                     console.log("Placed container stamps for colony " + this.room.name);
                 }
-                const existingNukers = this.room.find(FIND_MY_STRUCTURES, {
-                    filter: (s): s is StructureNuker => s.structureType === STRUCTURE_NUKER
-                });
-                const plannedNukers = this.memory.plannedConstructionSites.filter(site => site.structureType === STRUCTURE_NUKER);
-                if(existingNukers.length + plannedNukers.length == 0){
+
+                if(this.getTotalStructuresIncludingPlanned(STRUCTURE_NUKER)<1){
                     this.placeCoreStamp();
                     console.log("Placed core stamp for colony " + this.room.name);
                 }
-                const existingTowers = this.room.find(FIND_MY_STRUCTURES, {
-                    filter: (s): s is StructureTower => s.structureType === STRUCTURE_TOWER
-                });
-                const plannedTowers = this.memory.plannedConstructionSites.filter(site => site.structureType === STRUCTURE_TOWER);
-                // console.log(`Existing towers: ${existingTowers.length}, Planned towers: ${plannedTowers.length}`);
-                if(existingTowers.length + plannedTowers.length < 5){
+
+                if(this.getTotalStructuresIncludingPlanned(STRUCTURE_TOWER) < 5){
                     this.placeTowerStamp();
                     console.log("Placed tower stamp for colony " + this.room.name);
+                }
+
+                // continue to place extension stamps until the total number have been planned
+                while(this.getTotalStructuresIncludingPlanned(STRUCTURE_EXTENSION)<CONTROLLER_STRUCTURES[STRUCTURE_EXTENSION][8]){
+                    this.placeExtensionStamp();
                 }
             }
         }
 
-        // Place construction sites if any are missing
+        // Place construction sites if we are missing them on the map
         if (this.isMissingStructures()){
             ConstructionManager.placeConstructionSites(this.room, this.memory.plannedConstructionSites);
         }
@@ -146,6 +146,23 @@ export class Colony {
 
         this.runTowers();
         this.colonyVisualizer?.run();
+    }
+
+    getTotalStructuresExcludingPlanned(structure_type: StructureConstant): number {
+        /**
+         * returns the number of structures of that type on the map (includes existing structures and those still in construction site form)
+         */
+        const numExistingStructures = this.room.find(FIND_STRUCTURES, {filter: s=> s.structureType == structure_type}).length;
+        const numStructureSites = this.room.find(FIND_CONSTRUCTION_SITES, {filter: s=> s.structureType == structure_type}).length;
+        return numExistingStructures+numStructureSites;
+    }
+
+    getTotalStructuresIncludingPlanned(structure_type: StructureConstant): number {
+        /**
+         * returns the number of structures of that type on the map and those in memory (planned construction sites)
+         */
+        const numPlannedSites = this.memory.plannedConstructionSites?.filter(s=> s.structureType==structure_type).length;
+        return this.getTotalStructuresExcludingPlanned(structure_type)+(numPlannedSites??0);
     }
 
     clearPlannedConstructionSites(): void {
@@ -603,7 +620,7 @@ export class Colony {
         if(!this.spawns[0]) return;
         // now spiral outwards from here, checking at each location (which isn't a wall) if the core stamp will fit with that position as the anchor
         const spawnPos = this.spawns[0].pos;
-        const searchRadius = 5;
+        const searchRadius = 25;
         for (let r = 1; r <= searchRadius; r++) {
             for (let x = -r; x <= r; x++) {
                 for (let y = -r; y <= r; y++) {
@@ -627,7 +644,7 @@ export class Colony {
         if(!this.spawns[0]) return;
         // now spiral outwards from here, checking at each location (which isn't a wall) if the core stamp will fit with that position as the anchor
         const spawnPos = this.spawns[0].pos;
-        const searchRadius = 5;
+        const searchRadius = 25;
         for (let r = 1; r <= searchRadius; r++) {
             for (let x = -r; x <= r; x++) {
                 for (let y = -r; y <= r; y++) {
@@ -669,7 +686,33 @@ export class Colony {
         }
     }
 
-    placeSpawnStamp() {
+    placeExtensionStamp(): void {
+        /**
+         * Places an extension stamp at the nearest possible point, spiralling out from spawn
+         */
+        if(!this.spawns[0]) return;
+        const spawnPos = this.spawns[0].pos;
+        const maxRadius = 25;
+        for(let r = 1; r <= maxRadius; r++) {
+            for (let x = -r; x <= r; x++) {
+                for (let y = -r; y <= r; y++) {
+                    if(Math.abs(x)!==r && Math.abs(y)!==r) continue; // Only check the outer ring of the square
+                    const pos = new RoomPosition(spawnPos.x + x, spawnPos.y + y, spawnPos.roomName);
+                    if (pos.canPlaceStamp(towerStamp)) {
+                        this.placeStampIntoMemory(pos, extensionStamp);
+                        console.log(`Placed tower stamp for colony ${this.room.name} at ${pos}`);
+                        // console.log(this.memory.plannedConstructionSites);
+                        return;
+                    }
+                }
+            }
+        }
+
+    }
+
+
+
+    placeSpawnStamp(): void {
         /**
          * this will place the central spawn stamp overfit on the existing spawn (assuming there is only one in the room), and puts the structures
          * into the memory as building sites which need to be placed. These building sites will then be called
@@ -698,9 +741,7 @@ export class Colony {
     isMissingStructures(): boolean {
         for(const structure_constant of Object.keys(CONTROLLER_STRUCTURES) as BuildableStructureConstant[]){
             if (!(structure_constant in [STRUCTURE_CONTAINER, STRUCTURE_ROAD, STRUCTURE_RAMPART, STRUCTURE_WALL])) {
-                const existing_structures = this.room.find(FIND_MY_STRUCTURES, {filter: (s) => s.structureType === structure_constant});
-                const existing_construction_sites = this.room.find(FIND_CONSTRUCTION_SITES, {filter: (s) => s.structureType === structure_constant});
-                if (existing_structures.length + existing_construction_sites.length < CONTROLLER_STRUCTURES[structure_constant][this.room.controller?.level || 0]) {
+                if (this.getTotalStructuresExcludingPlanned(structure_constant) < CONTROLLER_STRUCTURES[structure_constant][this.room.controller?.level || 0]) {
                     return true;
                 }
             }
