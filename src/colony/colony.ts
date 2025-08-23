@@ -32,6 +32,8 @@ export class Colony {
     }
 
     init() {
+        // this.clearPlannedConstructionSites();
+        // this.memory.lastStampRCL = 2;
 
         // cache sources, spawns, creeps for this room
         this.memory.lastSeen = Game.time;
@@ -142,13 +144,16 @@ export class Colony {
             if(getCreepMemory(creep.name).taskId) {
                 this.runTask(creep);
             } else{
+                // console.log(`Colony ${this.room.name} has a creep ${creep.name} that is not assigned a task`);
                 //if sitting next to a source then move away from it
                 for(let source of this.sources){
                     //check if the creep is near that source;
                     //if it is then move away
                     if(creep.pos.isNearTo(source.pos)){
+                        // console.log(`Colony ${this.room.name} has a creep ${creep.name} that is sitting next to a source`);
                         //find the nearest path that takes the creep more than 1 tile away from the source
-                        let path = PathFinder.search(creep.pos, {pos: source.pos, range:1}, {flee:true}).path;
+                        let path = PathFinder.search(creep.pos, {pos: source.pos, range:2}, {flee:true}).path;
+                        console.log(path);
                         creep.moveByPath(path);
                         break;
                     }
@@ -250,6 +255,11 @@ export class Colony {
                 if(role == `miner`){
                     const body = this.minerBodyParts();
                     const memory: CreepMemory = {role, colony: this.room.name};
+                    const result = spawn.spawnCreep(body,name,{memory});
+                    if(result === OK) {
+                        console.log(`Spawning new miner in ${this.room.name}`);
+                        return;
+                    }
                 }
             }
         }
@@ -717,7 +727,7 @@ export class Colony {
                     const pos = new RoomPosition(spawnPos.x + x, spawnPos.y + y, spawnPos.roomName);
                     if (pos.canPlaceStamp(towerStamp)) {
                         this.placeStampIntoMemory(pos, extensionStamp);
-                        console.log(`Placed tower stamp for colony ${this.room.name} at ${pos}`);
+                        console.log(`Placed extension stamp for colony ${this.room.name} at ${pos}`);
                         // console.log(this.memory.plannedConstructionSites);
                         return;
                     }

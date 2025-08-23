@@ -83,7 +83,7 @@ RoomPosition.prototype.canPlaceStamp = function(stamp: Stamp): boolean {
     /**
      * Checks if the given stamp can be placed at this room position.
      */
-    console.log(`Checking if can place stamp at ${this.x}, ${this.y}`);
+    // console.log(`Checking if can place stamp at ${this.x}, ${this.y}`);
     for (const {dx, dy, structureType} of stamp) {
         const pos = new RoomPosition(this.x + dx, this.y + dy, this.roomName);
         if (pos.lookFor(LOOK_TERRAIN)[0] === 'wall') return false; // Can't place on walls
@@ -101,13 +101,24 @@ RoomPosition.prototype.canPlaceStamp = function(stamp: Stamp): boolean {
         const colonyMemory = getColonyMemory(this.roomName);
         if(colonyMemory !== undefined)
         {
-            const plannedConstructionSites = colonyMemory.plannedConstructionSites?.filter( s=>
-                s.pos.x === pos.x && s.pos.y === pos.y
-            );
-            for(const site of plannedConstructionSites? plannedConstructionSites: []) {
-                // check to see if the structuretype of the site matches the stamp
-                if (site.structureType !== structureType) return false; // Can't place if there's a different construction site planned
+            const plannedSitesAtLocation = colonyMemory.plannedConstructionSites?.filter(s=> s.structureType !== structureType && s.pos.x == pos.x && s.pos.y == pos.y);
+            if(plannedSitesAtLocation?.length || -1 > 0 ){
+                return false;
             }
+            // for(const site of plannedConstructionSites? plannedConstructionSites: []) {
+            //     // check to see if the structuretype of the site matches the stamp
+            //     if(site.structureType == STRUCTURE_TOWER){
+            //         console.log(`Found planned tower at ${this.x}, ${this.y}`);
+            //     }
+            //     if (site.structureType !== structureType){
+            //         // If the structure type doesn't match, we can't place the stamp
+            //         // if(pos.x == 32){
+            //         //     console.log(`Can't place stamp at ${this.x}, ${this.y} because of planned site ${site.structureType} at ${site.pos}`);
+            //         // }
+            //         return false;
+            //     }
+
+            // }
         }
     }
     return true;

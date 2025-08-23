@@ -44,6 +44,7 @@ export class Empire {
                 colony.spawnCreep('worker'); // Empire triggers spawn, colony implements details
             }
             if (colony.getMinerNeed()) {
+                console.log(`Colony ${colony.room.name} needs a miner`);
                 // console.log(`Empire: Spawning miner in ${colony.room.name}`);
                 colony.spawnCreep('miner'); // Empire triggers spawn, colony implements details
             }
