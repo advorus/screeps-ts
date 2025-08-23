@@ -103,6 +103,7 @@ RoomPosition.prototype.isInsideRoom = function(): boolean {
     /**
      * Checks that the x and y positions are inside the room
      */
+    if(this.x<=0 || this.x >=49 || this.y <= 0 || this.y>=49) return false;
     return true;
 }
 
