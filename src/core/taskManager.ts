@@ -282,11 +282,11 @@ export class TaskManager {
                 const upgradeContainer = focus.upgradeContainers[0];
                 if (upgradeContainer.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
                     if (TaskManager.checkForExistingTasks(`HAUL`, upgradeContainer, focus.room.name) === 0) {
-                        TaskManager.createTask(`HAUL`, upgradeContainer, focus.room.name, 0);
+                        TaskManager.createTask(`HAUL`, upgradeContainer, focus.room.name, 1);
                     }
                 }
             }
-            console.log(`Number of towers: ${focus.towers.length} in ${focus}`);
+            // console.log(`Number of towers: ${focus.towers.length} in ${focus}`);
             if(focus.towers.length>0){
 
                 for(const tower of focus.towers){

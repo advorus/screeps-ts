@@ -420,17 +420,18 @@ export class Colony {
             case 'UPGRADE':
                 // if there is an upgrade container in the room, pickup from there and upgrade similar to the fill task
                 if (this.upgradeContainers.length>0){
-                    // if none of the upgrade containers have energy, mark the task as finished
-                    if (this.upgradeContainers.every(c => c.store[RESOURCE_ENERGY] === 0)) {
-                        task.status = `DONE`;
-                        delete creep.memory.taskId;
-                        break;
-                    }
                     if (creep.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
                         // mark the creep as working
                         creep.memory.working = true;
                     }
+                    //if the creep energy store is empty then change to not working
                     if (creep.store.getUsedCapacity(RESOURCE_ENERGY) === 0) {
+                        // if none of the upgrade containers have energy, mark the task as finished
+                        if (this.upgradeContainers.every(c => c.store[RESOURCE_ENERGY] === 0)) {
+                            task.status = `DONE`;
+                            delete creep.memory.taskId;
+                            break;
+                        }
                         creep.memory.working = false;
                     }
                     if(creep.memory.working){
