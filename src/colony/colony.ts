@@ -2,7 +2,7 @@ import {getColonyMemory,getCreepMemory, getTaskMemory} from "core/memory";
 
 import "utils/roomPosition";
 import "utils/move";
-import { coreStamp, extensionStamp, spawnStamp, towerStamp } from "utils/stamps";
+import { coreStamp, extensionStamp, labStamp, spawnStamp, towerStamp } from "utils/stamps";
 import { ConstructionManager } from "core/constructionManager";
 import { ColonyVisualizer } from "./colonyVisualiser";
 import {profile} from "Profiler";
@@ -25,6 +25,7 @@ export class Colony {
     fillerContainers: StructureContainer[] = [];
     upgradeContainers: StructureContainer[] = [];
     storage?: StructureStorage;
+    spawnsAvailableForSpawning: StructureSpawn[] = [];
 
     constructor(room: Room) {
         this.room = room;
@@ -34,6 +35,19 @@ export class Colony {
     init() {
         // this.clearPlannedConstructionSites();
         // this.memory.lastStampRCL = 2;
+
+        // // count the number of planned construction sites at each room position
+        // const plannedConstructionSitesCount = new Map<string, number>();
+        // for (const site of this.memory.plannedConstructionSites || []) {
+        //     const key = `${site.pos.x},${site.pos.y},${site.pos.roomName}`;
+        //     plannedConstructionSitesCount.set(key, (plannedConstructionSitesCount.get(key) || 0) + 1);
+        // }
+        // // log any overlapping construction sites
+        // for (const [key, count] of plannedConstructionSitesCount) {
+        //     if (count > 1) {
+        //         console.log(`Found ${count} overlapping construction sites at ${key}}`);
+        //     }
+        // }
 
         // cache sources, spawns, creeps for this room
         this.memory.lastSeen = Game.time;
@@ -83,6 +97,8 @@ export class Colony {
         this.upgradeContainers = this.memory.upgradeContainerIds.map(id=>Game.getObjectById(id)).filter((s):s is StructureContainer=> s !== null);
         this.storage = Game.getObjectById(this.memory.storageId) as StructureStorage | undefined;
 
+        this.updateSpawnsForSpawning();
+
         // update the source container object
         for(const source of this.sources) {
             const container = source.pos.findInRange(FIND_STRUCTURES, 1, {
@@ -111,11 +127,13 @@ export class Colony {
                     console.log("Placed container stamps for colony " + this.room.name);
                 }
 
+                // this stamp includes the key structures
                 if(this.getTotalStructuresIncludingPlanned(STRUCTURE_NUKER)<1){
                     this.placeCoreStamp();
                     console.log("Placed core stamp for colony " + this.room.name);
                 }
 
+                // this stamp includes all towers
                 if(this.getTotalStructuresIncludingPlanned(STRUCTURE_TOWER) < 5){
                     this.placeTowerStamp();
                     console.log("Placed tower stamp for colony " + this.room.name);
@@ -124,6 +142,14 @@ export class Colony {
                 // continue to place extension stamps until the total number have been planned
                 while(this.getTotalStructuresIncludingPlanned(STRUCTURE_EXTENSION)<CONTROLLER_STRUCTURES[STRUCTURE_EXTENSION][8]){
                     this.placeExtensionStamp();
+                }
+
+                if(this.getTotalStructuresIncludingPlanned(STRUCTURE_LAB) < 1){
+                    const labStampLocation = this.spawns[0].pos.findNearestValidStampLocation(labStamp);
+                    if(labStampLocation !== null){
+                        this.placeStampIntoMemory(labStampLocation, labStamp);
+                        console.log("Placed lab stamp for colony " + this.room.name);
+                    }
                 }
             }
         }
@@ -153,7 +179,7 @@ export class Colony {
                         // console.log(`Colony ${this.room.name} has a creep ${creep.name} that is sitting next to a source`);
                         //find the nearest path that takes the creep more than 1 tile away from the source
                         let path = PathFinder.search(creep.pos, {pos: source.pos, range:2}, {flee:true}).path;
-                        console.log(path);
+                        // console.log(path);
                         creep.moveByPath(path);
                         break;
                     }
@@ -192,6 +218,10 @@ export class Colony {
         }).map(s => s.id);
     }
 
+    updateSpawnsForSpawning(): void {
+        this.spawnsAvailableForSpawning = this.spawns.filter(s => !s.spawning);
+    }
+
     updateExtensionIds(): void {
         this.memory.extensionIds = this.room.find(FIND_STRUCTURES, {
             filter: (s): s is StructureExtension => s.structureType === STRUCTURE_EXTENSION
@@ -211,23 +241,46 @@ export class Colony {
 
     setFillerContainerIds(): void {
         this.memory.fillerContainerIds = [];
-
+        // console.log(`filler container ids for ${this.room.name} are ${this.memory.fillerContainerIds}`);
         //find all containers within 1 tile of a (planned) spawn
         let containers = this.room.find(FIND_STRUCTURES, {
             filter: s => s.structureType === STRUCTURE_CONTAINER
         }) as StructureContainer[];
 
-        //now check if the container is either within 1 tile of a spawn
-        for(const spawn of this.spawns) {
-            const nearbyContainers = containers.filter(c => c.pos.inRangeTo(spawn.pos, 1));
-            this.memory.fillerContainerIds.push(...nearbyContainers.map(c => c.id));
+        for(const container of containers) {
+            for(const spawn of this.spawns){
+                if(container.pos.isNearTo(spawn.pos)){
+                    if(!(container.id in this.memory.fillerContainerIds)) {
+                        this.memory.fillerContainerIds.push(container.id);
+                    }
+                    break;
+                }
+            }
+            const plannedSpawns = this.memory.plannedConstructionSites?.filter(s => s.structureType === STRUCTURE_SPAWN) ?? [];
+            for(const site of plannedSpawns) {
+                const sitePos = new RoomPosition(site.pos.x, site.pos.y, site.pos.roomName);
+                if(container.pos.isNearTo(sitePos)){
+                    if(!(container.id in this.memory.fillerContainerIds)) {
+                        this.memory.fillerContainerIds.push(container.id);
+                    }
+                    break;
+                }
+            }
+
+
         }
 
-        //now check if any containers are within 1 tile of a spawn in the planned construction sites list
-        for(const site of this.memory.plannedConstructionSites ?? []) {
-            const nearbyContainers = containers.filter(c => c.pos.inRangeTo(site.pos, 1));
-            this.memory.fillerContainerIds.push(...nearbyContainers.map(c => c.id));
-        }
+        // //now check if the container is either within 1 tile of a spawn
+        // for(const spawn of this.spawns) {
+        //     const nearbyContainers = containers.filter(c => c.pos.inRangeTo(spawn.pos, 1));
+        //     this.memory.fillerContainerIds.push(...nearbyContainers.map(c => c.id));
+        // }
+
+        // //now check if any containers are within 1 tile of a spawn in the planned construction sites list
+        // for(const site of this.memory.plannedConstructionSites ?? []) {
+        //     const nearbyContainers = containers.filter(c => c.pos.inRangeTo(site.pos, 1));
+        //     this.memory.fillerContainerIds.push(...nearbyContainers.map(c => c.id));
+        // }
     }
 
     setUpgradeContainerIds(): void {
@@ -240,37 +293,47 @@ export class Colony {
     }
 
     spawnCreep(role: string) {
-        for(const spawn of this.spawns) {
-            if(!spawn.spawning) {
-                const name = `${role}_${Game.time}`;
-                if(role === 'worker') {
-                    const body = this.workerBodyParts();
-                    const memory: CreepMemory = {role, colony:this.room.name};
-                    const result = spawn.spawnCreep(body,name,{memory});
-                    if(result === OK) {
-                        console.log(`Spawning new worker in ${this.room.name}`);
-                        return;
+        for(const spawn of this.spawnsAvailableForSpawning) {
+            const spawnIndex = this.spawnsAvailableForSpawning.indexOf(spawn);
+            const name = `${role}_${Game.time}`;
+            if(role === 'worker') {
+                const body = this.workerBodyParts();
+                // console.log(`trying to spawn new worker with body ${body}`);
+                const memory: CreepMemory = {role, colony:this.room.name};
+                const result = spawn.spawnCreep(body,name,{memory});
+                if(result === OK) {
+                    console.log(`Spawning new worker in ${this.room.name}`);
+                    if (spawnIndex < 0) {
+                        console.log(`Couldn't find spawn index`);
+                    } else {
+                        this.spawnsAvailableForSpawning.splice(spawnIndex, 1);
                     }
+                    return;
                 }
-                if(role == `miner`){
-                    const body = this.minerBodyParts();
-                    const memory: CreepMemory = {role, colony: this.room.name};
-                    const result = spawn.spawnCreep(body,name,{memory});
-                    if(result === OK) {
-                        console.log(`Spawning new miner in ${this.room.name}`);
-                        return;
+            }
+            if(role == `miner`){
+                const body = this.minerBodyParts();
+                const memory: CreepMemory = {role, colony: this.room.name};
+                const result = spawn.spawnCreep(body,name,{memory});
+                if(result === OK) {
+                    console.log(`Spawning new miner in ${this.room.name}`);
+                    if (spawnIndex < 0) {
+                        console.log(`Couldn't find spawn index`);
+                    } else {
+                        this.spawnsAvailableForSpawning.splice(spawnIndex, 1);
                     }
+                    return;
                 }
             }
         }
     }
 
     workerBodyParts(): BodyPartConstant[] {
-        if (this.room.energyCapacityAvailable<350){
+        if (this.room.energyAvailable<350){
             return [WORK, CARRY, MOVE, MOVE];
         }
         else {
-            const num_work_parts = Math.min(Math.floor((this.room.energyCapacityAvailable) / 200),4);
+            const num_work_parts = Math.min(Math.floor((this.room.energyAvailable) / 200),4);
             const body: BodyPartConstant[] = [];
             for(let i=0;i<num_work_parts;i++){
                 body.push(WORK);
@@ -283,7 +346,7 @@ export class Colony {
     }
 
     minerBodyParts(): BodyPartConstant[] {
-        const num_work_parts = Math.min(Math.floor((this.room.energyCapacityAvailable-50) / 100),5);
+        const num_work_parts = Math.max(Math.min(Math.floor((this.room.energyAvailable-50) / 100),5), 1);
         return Array(num_work_parts).fill(WORK).concat(MOVE);
     }
 
@@ -566,9 +629,18 @@ export class Colony {
                 }
                 break;
             case 'MINE':
-                if (creep.harvest(target as Source) === ERR_NOT_IN_RANGE) {
-                    creep.safeMoveTo(target, {reusePath:15, visualizePathStyle: {stroke: '#ffffff'}});
+                //find the source container next to the source
+                const sourceContainer = this.room.find(FIND_STRUCTURES, {
+                    filter: (s) => s.structureType === STRUCTURE_CONTAINER && s.pos.isNearTo(target)
+                })[0];
+                if(!creep.pos.isEqualTo(sourceContainer.pos)) {
+                    creep.moveTo(sourceContainer.pos);
+                }else{
+                    creep.harvest(target as Source);
                 }
+                // if (creep.harvest(target as Source) === ERR_NOT_IN_RANGE) {
+                //     creep.safeMoveTo(target, {reusePath:15, visualizePathStyle: {stroke: '#ffffff'}});
+                // }
                 break;
             case `FILL`:
                 // there is no longer any energy in the container to fill with
@@ -622,6 +694,9 @@ export class Colony {
                     break;
                 }
                 if (creep.pickup(target as Resource) === ERR_NOT_IN_RANGE) {
+                    creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+                }
+                if(creep.withdraw(target as AnyStructure, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
                     creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
                 }
                 break;
@@ -713,7 +788,7 @@ export class Colony {
         }
     }
 
-    placeExtensionStamp(): void {
+    placeExtensionStamp(allowOverlayExcRoads: boolean = false): void {
         /**
          * Places an extension stamp at the nearest possible point, spiralling out from spawn
          */
@@ -725,7 +800,7 @@ export class Colony {
                 for (let y = -r; y <= r; y++) {
                     if(Math.abs(x)!==r && Math.abs(y)!==r) continue; // Only check the outer ring of the square
                     const pos = new RoomPosition(spawnPos.x + x, spawnPos.y + y, spawnPos.roomName);
-                    if (pos.canPlaceStamp(towerStamp)) {
+                    if (pos.canPlaceStamp(extensionStamp, allowOverlayExcRoads)) {
                         this.placeStampIntoMemory(pos, extensionStamp);
                         console.log(`Placed extension stamp for colony ${this.room.name} at ${pos}`);
                         // console.log(this.memory.plannedConstructionSites);

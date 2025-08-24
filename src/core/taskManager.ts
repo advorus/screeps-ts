@@ -97,6 +97,9 @@ export class TaskManager {
                     continue;
                 }
                 // only miners can pick up mine tasks
+                if(creep.memory.role === `miner` && task.type !== `MINE`) {
+                    continue;
+                }
                 if(task.type === `MINE` && creep.memory.role !== `miner`) {
                     continue;
                 }
@@ -126,8 +129,28 @@ export class TaskManager {
                     // console.log(`Creating a new ${task.type} task for ${task.targetId} in colony ${task.colony} because existing creeps cannot fulfil the energy requirement`);
                     this.createTask(task.type, Game.getObjectById(task.targetId) as AnyStructure | Source, task.colony as string, task.priority || 0);
                 }
-                // console.log(`Assigned task ${task.id} of type ${task.type} to creep ${creep.name}`);
-                return; // Return the assigned task ID
+
+                if(task.type == 'PICKUP'){ //} && Game.getObjectById(task.targetId).amount > creep.store.getFreeCapacity()) {
+                    // get the energy capacity of all creeps assigned to the target
+                    let totalPickupAmount = 0;
+                    if(Game.getObjectById(task.targetId) instanceof Resource) {
+                        totalPickupAmount = Game.getObjectById(task.targetId).amount;
+                    }
+                    else{
+                        totalPickupAmount = Game.getObjectById(task.targetId).store.getUsedCapacity(RESOURCE_ENERGY);
+                    }
+                    const assignedCreeps = Object.values(Game.creeps).filter(c => {
+                        const memory = getCreepMemory(c.name);
+                        return memory.taskId && getTaskMemory(memory.taskId).targetId === task.targetId;
+                    });
+                    //sum the amount of energy capacity of these creeps
+                    const totalEnergyCapacity = assignedCreeps.reduce((sum, c) => sum + c.store.getFreeCapacity(RESOURCE_ENERGY), 0);
+                    if (totalPickupAmount > totalEnergyCapacity) {
+                        console.log(`Creating a new ${task.type} task for ${task.targetId} in colony ${task.colony} because existing creeps cannot fulfil the energy requirement`);
+                        this.createTask(task.type, Game.getObjectById(task.targetId) as AnyStructure | Source, task.colony as string, task.priority || 0);
+                    }
+                }
+                return;
             }
         }
     }
@@ -149,31 +172,38 @@ export class TaskManager {
         }
         this.createColonyBuildTasks(colony);
         this.createHaulTasks(colony);
+        // console.log(`Got here`);
         this.createRepairTasks(colony);
+        // console.log(`Got here`)
     }
 
     static createRepairTasks(colony: ColonyLike) {
     /**
      * Create repair tasks for damaged structures in the colony
      */
-    const damagedStructures = colony.room.find(FIND_STRUCTURES, {
-        filter: (structure) => structure.hits < structure.hitsMax
-    });
-    for (const structure of damagedStructures) {
-        //priority of the repair task should be 1 higher than the highest priority build task, otherwise 5
-        let priority = 5;
-        const existingBuildTasks = Object.values(Memory.tasks).filter(task =>
-            task.type === 'BUILD' &&
-            task.colony === colony.room.name &&
-            task.status !== 'DONE'
-        );
-        if (existingBuildTasks.length > 0) {
-            priority = Math.max(...existingBuildTasks.map(task => task.priority ? task.priority : 0)) + 1;
+        const damagedStructures = colony.room.find(FIND_STRUCTURES, {
+            filter: (structure) => structure.hits < structure.hitsMax
+        });
+        // console.log(`here`);
+        // console.log(`Found ${damagedStructures.length} damaged structures`);
+        for (const structure of damagedStructures) {
+            //priority of the repair task should be 1 higher than the highest priority build task, otherwise 5
+            let priority = 5;
+            const existingBuildTasks = Object.values(Memory.tasks).filter(task =>
+                task.type === 'BUILD' &&
+                task.colony === colony.room.name &&
+                task.status !== 'DONE'
+            );
+            if (existingBuildTasks.length > 0) {
+                priority = Math.max(...existingBuildTasks.map(task => task.priority ? task.priority : 0)) + 1;
+            }
+            // console.log(`Got here`);
+            // console.log(`Used ${Game.cpu.getUsed()} CPU up to here`);
+            if(!this.checkIfExistingTask(`REPAIR`, structure, colony.room.name)) {
+                this.createTask(`REPAIR`, structure, colony.room.name, priority);
+            }
         }
-        if(this.checkForExistingTasks(`REPAIR`, structure, colony.room.name) === 0) {
-            this.createTask(`REPAIR`, structure, colony.room.name, priority);
-        }
-    }
+        // console.log(`Created repair tasks`);
     }
 
     static createColonyBuildTasks(colony: ColonyLike) {
@@ -201,7 +231,7 @@ export class TaskManager {
             if (!existingBuildTaskOfType) {
                 priority += 1;
             }
-            console.log(`Creating build task for ${site.id} in colony ${colony.room.name} with priority ${priority}`);
+            // console.log(`Creating build task for ${site.id} in colony ${colony.room.name} with priority ${priority}`);
             TaskManager.createTask(`BUILD`, site, colony.room.name, priority);
         }
     }
@@ -215,7 +245,9 @@ export class TaskManager {
             });
             if (container.length > 0) {
                 // If there is a container, create a mining task
-                TaskManager.createTask(`MINE`, source, focus.room.name);
+                if(!this.checkIfExistingTask(`MINE`, source, focus.room.name)) {
+                    TaskManager.createTask(`MINE`, source, focus.room.name);
+                }
                 // need to create pickup tasks
                 this.createPickupTasks(focus);
             }
@@ -231,10 +263,24 @@ export class TaskManager {
         }
     }
 
+    static checkIfExistingTask(type: TaskMemory['type'], target: AnyStructure | Source | Resource, colony: string): boolean {
+    /**
+     * returns true if there is a matching existing task
+     */
+        const tasks = getAllTaskMemory();
+        for (const task of tasks) {
+            if (task.type === type && task.targetId === target.id && task.colony === colony && task.status !== `DONE`) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     static checkForExistingTasks(type: TaskMemory['type'], target: AnyStructure | Source | Resource, colony: string): number {
         /**
          * Check if there is an existing task of the given type for the target in the specified colony
          */
+        // console.log(`Checking for existing tasks of type ${type} for target ${target.id} in colony ${colony} - cpu used to now is ${Game.cpu.getUsed()}`);
         return Object.values(Memory.tasks).filter(task =>
             task.type === type &&
             task.targetId === target.id &&
@@ -281,7 +327,7 @@ export class TaskManager {
             if (focus.upgradeContainers.length > 0) {
                 const upgradeContainer = focus.upgradeContainers[0];
                 if (upgradeContainer.store.getFreeCapacity(RESOURCE_ENERGY) > 0) {
-                    if (TaskManager.checkForExistingTasks(`HAUL`, upgradeContainer, focus.room.name) === 0) {
+                    if (!TaskManager.checkIfExistingTask(`HAUL`, upgradeContainer, focus.room.name)) {
                         TaskManager.createTask(`HAUL`, upgradeContainer, focus.room.name, 1);
                     }
                 }
@@ -291,7 +337,7 @@ export class TaskManager {
 
                 for(const tower of focus.towers){
                     if(tower.store.getFreeCapacity(RESOURCE_ENERGY)>0){
-                        if(TaskManager.checkForExistingTasks(`HAUL`, tower, focus.room.name)===0){
+                        if(!TaskManager.checkIfExistingTask(`HAUL`, tower, focus.room.name)){
                             TaskManager.createTask(`HAUL`, tower, focus.room.name,8);
                         }
                     }
@@ -301,7 +347,7 @@ export class TaskManager {
             if (focus.fillerContainers.length > 0){
                 for(const fillerContainer of focus.fillerContainers){
                     if(fillerContainer.store.getFreeCapacity(RESOURCE_ENERGY) > 0){
-                        if(TaskManager.checkForExistingTasks(`HAUL`, fillerContainer, focus.room.name) === 0) {
+                        if(!TaskManager.checkIfExistingTask(`HAUL`, fillerContainer, focus.room.name)) {
                             TaskManager.createTask(`HAUL`, fillerContainer, focus.room.name, 10);
                         }
                     }
@@ -310,14 +356,14 @@ export class TaskManager {
             } else{
                 // Create haul tasks for each spawn in the colony
                 focus.spawns.filter(s=>s.store.getFreeCapacity(RESOURCE_ENERGY) > 0).forEach(spawn => {
-                    if (TaskManager.checkForExistingTasks(`HAUL`, spawn, focus.room.name) === 0) {
+                    if (!TaskManager.checkIfExistingTask(`HAUL`, spawn, focus.room.name)) {
                         TaskManager.createTask(`HAUL`, spawn, focus.room.name,10);
                     }
                 });
                 // Create a haul task for extensions
                 // console.log(focus.extensions);
                 focus.extensions.filter(e=>e.store[RESOURCE_ENERGY] < e.store.getCapacity(RESOURCE_ENERGY)).forEach(extension => {
-                    if (TaskManager.checkForExistingTasks(`HAUL`, extension, focus.room.name) === 0) {
+                    if (!TaskManager.checkIfExistingTask(`HAUL`, extension, focus.room.name)) {
                         TaskManager.createTask(`HAUL`, extension, focus.room.name,10);
                     }
                 });
@@ -358,7 +404,7 @@ export class TaskManager {
                 // check if there is anything to pickup from source containers
                 focus.sourceContainers.forEach(container => {
                     if (container.store[RESOURCE_ENERGY] > 0) {
-                        if (this.checkForExistingTasks(`PICKUP`, container, focus.room.name) === 0) {
+                        if (!this.checkIfExistingTask(`PICKUP`, container, focus.room.name)) {
                             TaskManager.createTask(`PICKUP`, container, focus.room.name);
                         }
                     }
@@ -366,10 +412,12 @@ export class TaskManager {
             }
             //check for any energy dropped on the floor
             const droppedResources = focus.room.find(FIND_DROPPED_RESOURCES);
+            // console.log(`Found ${droppedResources.length} dropped resources`);
             droppedResources.forEach(resource => {
                 if (resource.resourceType === RESOURCE_ENERGY) {
-                    if (this.checkForExistingTasks(`PICKUP`, resource, focus.room.name) === 0) {
-                        TaskManager.createTask(`PICKUP`, resource, focus.room.name);
+                    // console.log(`Found ${resource.amount} energy dropped at ${resource.pos}`);
+                    if (!this.checkIfExistingTask(`PICKUP`, resource, focus.room.name)) {
+                        TaskManager.createTask(`PICKUP`, resource, focus.room.name,1);
                     }
                 }
             });

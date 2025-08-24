@@ -7,7 +7,7 @@ declare global {
         getFreeTiles(): RoomPosition[];
         findNearestOpenTile(maxRange?: number, minOpenAdjacent?: number, excludeConstructionSites?: boolean, excludeStructures?: boolean): RoomPosition | null;
         findNearestValidStampLocation(stamp: {dx:number, dy:number, structureType: BuildableStructureConstant}[]): RoomPosition | null;
-        canPlaceStamp(stamp: Stamp) : boolean;
+        canPlaceStamp(stamp: Stamp, canOverlayExcRoads?: boolean) : boolean;
         isInsideRoom(): boolean;
 
     }
@@ -107,7 +107,7 @@ RoomPosition.prototype.isInsideRoom = function(): boolean {
     return true;
 }
 
-RoomPosition.prototype.canPlaceStamp = function(stamp: Stamp): boolean {
+RoomPosition.prototype.canPlaceStamp = function(stamp: Stamp, canOverlayExcRoads: boolean = true): boolean {
     /**
      * Checks if the given stamp can be placed at this room position.
      */
@@ -124,23 +124,13 @@ RoomPosition.prototype.canPlaceStamp = function(stamp: Stamp): boolean {
         const colonyMemory = getColonyMemory(this.roomName);
         if(colonyMemory !== undefined)
         {
-            const plannedSitesAtLocation = colonyMemory.plannedConstructionSites?.filter(s=> s.structureType !== structureType && s.pos.x == pos.x && s.pos.y == pos.y);
-            if(plannedSitesAtLocation?.length || -1 > 0 ) return false;
-
-            // for(const site of plannedConstructionSites? plannedConstructionSites: []) {
-            //     // check to see if the structuretype of the site matches the stamp
-            //     if(site.structureType == STRUCTURE_TOWER){
-            //         console.log(`Found planned tower at ${this.x}, ${this.y}`);
-            //     }
-            //     if (site.structureType !== structureType){
-            //         // If the structure type doesn't match, we can't place the stamp
-            //         // if(pos.x == 32){
-            //         //     console.log(`Can't place stamp at ${this.x}, ${this.y} because of planned site ${site.structureType} at ${site.pos}`);
-            //         // }
-            //         return false;
-            //     }
-
-            // }
+            if(canOverlayExcRoads || structureType === STRUCTURE_ROAD){
+                const plannedSitesAtLocation = colonyMemory.plannedConstructionSites?.filter(s=> s.structureType !== structureType && s.pos.x === pos.x && s.pos.y === pos.y);
+                if(plannedSitesAtLocation?.length || -1 > 0 ) return false;
+            } else {
+                const plannedSitesAtLocation = colonyMemory.plannedConstructionSites?.filter(s=> s.pos.x === pos.x && s.pos.y === pos.y);
+                if(plannedSitesAtLocation?.length || -1 > 0 ) return false;
+            }
         }
     }
     return true;

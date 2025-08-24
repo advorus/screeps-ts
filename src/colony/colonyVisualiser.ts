@@ -128,9 +128,9 @@ export class ColonyVisualizer {
             };
             const sitePos = new RoomPosition(site.pos.x, site.pos.y, this.colony.room.name);
 
-            if(site.structureType === STRUCTURE_TOWER){
-                visual.circle(sitePos, {radius: 0.5, fill: colorMap[site.structureType]??'white', opacity: 0.1});
-            }
+            // if(site.structureType === STRUCTURE_TOWER){
+            visual.circle(sitePos, {radius: 0.5, fill: colorMap[site.structureType]??'white', opacity: 0.1});
+            // }
         }
     }
 }

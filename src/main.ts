@@ -5,6 +5,7 @@ import * as Profiler from "Profiler";
 
 
 global.Profiler = Profiler.init();
+// Memory.tasks = {};
 
 declare global {
   /*

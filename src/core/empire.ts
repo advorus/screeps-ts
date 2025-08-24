@@ -34,6 +34,7 @@ export class Empire {
 
         // Empire-level task creation
         TaskManager.createTasks(this);
+        // console.log(`Got here`);
         TaskManager.reprioritiseTasks(this);
 
         // Empire-level spawning decision
@@ -44,7 +45,7 @@ export class Empire {
                 colony.spawnCreep('worker'); // Empire triggers spawn, colony implements details
             }
             if (colony.getMinerNeed()) {
-                console.log(`Colony ${colony.room.name} needs a miner`);
+                // console.log(`Colony ${colony.room.name} needs a miner`);
                 // console.log(`Empire: Spawning miner in ${colony.room.name}`);
                 colony.spawnCreep('miner'); // Empire triggers spawn, colony implements details
             }
@@ -58,6 +59,7 @@ export class Empire {
             }
         }
 
+        // console.log(`Got here`);
         for (const colony of this.colonies){
             // Run the colony logic, including task execution
             colony.run();
@@ -65,6 +67,7 @@ export class Empire {
     }
 
     post() {
+        // console.log(`got here`)
         for(const name in Memory.colonies){
             if(!(name in Game.rooms)){
                 delete Memory.colonies[name];
@@ -79,20 +82,29 @@ export class Empire {
             // if the taskId is no longer in Memory.tasks, delete it from the creep's memory
             const creepMemory = getCreepMemory(creep);
             if (creepMemory.taskId && getTaskMemory(creepMemory.taskId) === undefined) {
+                console.log(`Task ${creepMemory.taskId} no longer exists, removing from creep ${creep}'s memory`);
                 delete creepMemory.taskId;
             }
         }
         for(const taskId in Memory.tasks){
             const task = getTaskMemory(taskId);
+            if(task.targetId!==undefined){
+                const target = Game.getObjectById(task.targetId);
+                if(target === null){
+                    console.log(`Task ${task.id} has an invalid target ${task.targetId}`);
+                    delete Memory.tasks[taskId];
+                }
+            }
+
             // remove completed tasks
             if(task.status === `DONE`) {
-                // console.log(`Task ${task.id} completed and so is being deleted`);
+                console.log(`Task ${task.id} completed and so is being deleted`);
                 delete Memory.tasks[taskId];
             }
             // remove assigned creeps from tasks if the creep is no longer in the game
             if (task.assignedCreep){
                 if(!(task.assignedCreep in Game.creeps)) {
-                    // console.log(`Creep ${task.assignedCreep} is no longer in the game and so removing it from task`);
+                    console.log(`Creep ${task.assignedCreep} is no longer in the game and so removing it from task`);
                     delete task.assignedCreep;
                     task.status = "PENDING";
                 }
