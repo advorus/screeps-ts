@@ -1,4 +1,4 @@
-import {getColonyMemory,getCreepMemory, getTaskMemory} from "core/memory";
+import {getAllTaskMemory, getColonyMemory,getCreepMemory, getScoutedRoomMemory, getTaskMemory, updateCachedRoomDataForRoom} from "core/memory";
 
 import "utils/roomPosition";
 import "utils/move";
@@ -50,6 +50,8 @@ export class Colony {
         // }
 
         // cache sources, spawns, creeps for this room
+        this.memory.wallRepairThreshold = 100000;
+
         this.memory.lastSeen = Game.time;
         if(!this.memory.sourceIds) {
             this.memory.sourceIds = this.room.find(FIND_SOURCES)
@@ -65,25 +67,31 @@ export class Colony {
                 filter: (s): s is StructureTower => s.structureType === STRUCTURE_TOWER
             }).map(s => s.id);
         }
+        this.memory.repairTargets ??= [];
+
 
         this.updateTowerIds();
 
         this.memory.extensionIds ??= [];
         this.updateExtensionIds();
+        this.updateSpawnIds();
 
-        this.memory.storageId ??= this.room.find(FIND_STRUCTURES, {
+        this.memory.storageId = this.room.find(FIND_STRUCTURES, {
             filter: (s): s is StructureStorage => s.structureType === STRUCTURE_STORAGE
         }).map(s => s.id)[0];
+        this.storage = Game.getObjectById(this.memory.storageId) as StructureStorage | undefined;
 
         this.memory.fillerContainerIds ??= [];
         this.memory.upgradeContainerIds ??= [];
         this.memory.lastStampRCL ??= 0;
         this.memory.plannedConstructionSites ??= [];
         this.memory.focusOnUpgrade ??= false;
+        this.memory.haulerPartsNeeded ??= 0;
 
         this.setFocusOnUpgrade();
         this.setFillerContainerIds();
         this.setUpgradeContainerIds();
+        // this.updateStorage();
 
         // cache creeps assigned to this colony via memory
         this.creeps = Object.values(Game.creeps).filter(c=>getCreepMemory(c.name).colony === this.room.name);
@@ -96,6 +104,8 @@ export class Colony {
         this.fillerContainers = this.memory.fillerContainerIds.map(id=>Game.getObjectById(id)).filter((s):s is StructureContainer=> s !== null);
         this.upgradeContainers = this.memory.upgradeContainerIds.map(id=>Game.getObjectById(id)).filter((s):s is StructureContainer=> s !== null);
         this.storage = Game.getObjectById(this.memory.storageId) as StructureStorage | undefined;
+
+        // console.log(`got here for room ${this.room.name}`);
 
         this.updateSpawnsForSpawning();
 
@@ -111,7 +121,7 @@ export class Colony {
 
         // Place spawn stamp if the controller level increased
         if (this.room.controller !== undefined) {
-            if (this.memory.lastStampRCL < this.room.controller.level) {
+            if (this.memory.lastStampRCL < this.room.controller.level && this.room.controller.level > 2) {
                 //update the stamp level
                 this.memory.lastStampRCL = this.room.controller.level;
 
@@ -159,12 +169,19 @@ export class Colony {
             ConstructionManager.placeConstructionSites(this.room, this.memory.plannedConstructionSites);
         }
 
+        if(Game.time%30==0){
+            this.updateHaulerPartsNeeded();
+            this.updateRepairTargets();
+            this.updateWallRepairThreshold();
+        }
+
         // Initialise visualiser
         this.colonyVisualizer = new ColonyVisualizer(this);
 
     }
 
     run() {
+        // console.log(`Hauler parts needed for ${this.room.name}: ${this.memory.haulerPartsNeeded}`);
         // Assign tasks to creeps
         for(const creep of this.creeps) {
             if(getCreepMemory(creep.name).taskId) {
@@ -189,6 +206,93 @@ export class Colony {
 
         this.runTowers();
         this.colonyVisualizer?.run();
+    }
+
+    updateWallRepairThreshold():void{
+        const wallsNeedingRepair = this.room.find(FIND_STRUCTURES, {filter: s=> (s.structureType===STRUCTURE_WALL || s.structureType===STRUCTURE_RAMPART)&&s.hits<this.memory.wallRepairThreshold});
+        if(wallsNeedingRepair.length == 0){
+            if(this.room.controller!==undefined){
+                this.memory.wallRepairThreshold = Math.min(this.memory.wallRepairThreshold + 100000, Math.max(this.room.controller.level-2,1)*300e3);
+            }
+        }
+    }
+
+    updateRepairTargets(): void {
+        //delete any repair targets with structure hits == hitsMax
+        if(this.memory.repairTargets === undefined) return;
+        for(const {id, active} of this.memory.repairTargets) {
+            const structure = Game.getObjectById(id) as AnyStructure | null;
+            if(structure && structure.hits === structure.hitsMax) {
+                this.memory.repairTargets = this.memory.repairTargets.filter(t => t.id !== id);
+            }
+        }
+
+        const structureToRepair = this.room.find(FIND_STRUCTURES, {
+            filter: (s) => s.structureType !== STRUCTURE_WALL && s.structureType !== STRUCTURE_RAMPART && s.hits < 0.75 * s.hitsMax
+        });
+
+        for(const structure of structureToRepair){
+            if(!this.memory.repairTargets.find(t => t.id === structure.id)){
+                this.memory.repairTargets.push({id: structure.id, active: true});
+            }
+        }
+    }
+
+    updateSpawnIds(): void {
+        this.memory.spawnIds = this.room.find(FIND_MY_SPAWNS).map(s => s.id);
+    }
+
+    updateHaulerPartsNeeded(): void {
+        // console.log(`Updating hauler parts needed for ${this.room.name}`);
+        if(this.room.controller === undefined){
+            this.memory.haulerPartsNeeded = 0;
+            return
+        }
+        if(this.room.controller?.level<3){
+            this.memory.haulerPartsNeeded = 0;
+            return;
+        }
+        let haulerPartsNeeded = 0;
+        for(const source of this.sources){
+            let existingMinerParts = 0;
+            // check if there is a mining task assigned
+            const miningTasks = Object.values(Memory.tasks).filter(task =>
+                task.type === 'MINE' && task.targetId === source.id && task.status === 'IN_PROGRESS'
+            );
+            // for each miningTask check how many mining parts exist on the assigned creep
+            for(const miningTask of miningTasks){
+                if(miningTask.assignedCreep){
+                    const creep = Game.creeps[miningTask.assignedCreep];
+                    if(creep){
+                        const numMiningParts = creep.body.filter(part => part.type === WORK).length;
+                        // for each mining part, we need 2 carry parts to transport the energy
+                        existingMinerParts += numMiningParts;
+                    }
+                }
+            }
+            // get the path to the source
+            let haulTarget = this.room.storage?.pos;
+            if(!this.room.storage){
+                haulTarget = this.spawns[0].pos;
+            }
+            haulTarget??= new RoomPosition(25,25,this.room.name);
+            const pathToSource = PathFinder.search(haulTarget, source.pos).path;
+            const timeToSource = pathToSource.length;
+            // calculate the time taken to return from the source given the 2:1 carry/move ratio
+            // takes 2 ticks to traverse plain, 1 tick to traverse road,
+            const timeFromSource = pathToSource.reduce((acc, pos) => {
+                const terrain = Game.map.getRoomTerrain(pos.roomName).get(pos.x, pos.y);
+                if (terrain === TERRAIN_MASK_SWAMP) {
+                    return acc + 10;
+                } else {
+                    return acc + 2;
+                }
+            }, 0);
+            const roundTripTime = timeToSource + timeFromSource;
+            // the number of carry parts needed is minerparts*2*roundTripTime
+            haulerPartsNeeded += existingMinerParts * 2 * roundTripTime / 50;
+        }
+        this.memory.haulerPartsNeeded = haulerPartsNeeded;
     }
 
     getTotalStructuresExcludingPlanned(structure_type: StructureConstant): number {
@@ -292,14 +396,17 @@ export class Colony {
             }
     }
 
-    spawnCreep(role: string) {
+    spawnCreep(role: string, colonyName?: string|undefined) : void {
         for(const spawn of this.spawnsAvailableForSpawning) {
             const spawnIndex = this.spawnsAvailableForSpawning.indexOf(spawn);
-            const name = `${role}_${Game.time}`;
-            if(role === 'worker') {
+            const name = `${role}_${Game.time}_${this.room.name}`;
+            if(role === 'worker' || role===`builder` || role===`upgrader`) {
                 const body = this.workerBodyParts();
                 // console.log(`trying to spawn new worker with body ${body}`);
-                const memory: CreepMemory = {role, colony:this.room.name};
+                if(colonyName === undefined){
+                    colonyName = this.room.name;
+                }
+                const memory: CreepMemory = {role, colony:colonyName};
                 const result = spawn.spawnCreep(body,name,{memory});
                 if(result === OK) {
                     console.log(`Spawning new worker in ${this.room.name}`);
@@ -325,15 +432,72 @@ export class Colony {
                     return;
                 }
             }
+            if(role==`claimer`){
+                const body = [CLAIM, MOVE];
+                const memory: CreepMemory = {role, colony: this.room.name};
+                const result = spawn.spawnCreep(body,name,{memory});
+                if(result === OK) {
+                    console.log(`Spawning new claimer in ${this.room.name}`);
+                    if (spawnIndex < 0) {
+                        console.log(`Couldn't find spawn index`);
+                    } else {
+                        this.spawnsAvailableForSpawning.splice(spawnIndex, 1);
+                    }
+                    return;
+                }
+            }
+            if(role==`hauler`){
+                // console.log(`trying to spawn a hauler in room ${this.room.name}`);
+                // const body = [CARRY,CARRY,CARRY,CARRY,CARRY,CARRY,CARRY,CARRY,MOVE,MOVE,MOVE,MOVE];
+                // const body = Array.from({ length: this.room.energyAvailable/150}, () => [CARRY,CARRY,MOVE]).flat();
+                const body = this.haulerBodyParts();
+                // console.log(body);
+                const memory: CreepMemory = {role, colony: this.room.name};
+                const result = spawn.spawnCreep(body,name,{memory});
+                if(result === OK) {
+                    console.log(`Spawning new hauler in ${this.room.name}`);
+                    if (spawnIndex < 0) {
+                        console.log(`Couldn't find spawn index`);
+                    } else {
+                        this.spawnsAvailableForSpawning.splice(spawnIndex, 1);
+                    }
+                    return;
+                }
+            }
+            if(role==`scout`){
+                const body = [TOUGH,TOUGH,TOUGH,MOVE,MOVE];
+                // console.log(body);
+                const memory: CreepMemory = {role, colony: this.room.name};
+                const result = spawn.spawnCreep(body,name,{memory});
+                if(result === OK) {
+                    console.log(`Spawning new scout in ${this.room.name}`);
+                    if (spawnIndex < 0) {
+                        console.log(`Couldn't find spawn index`);
+                    } else {
+                        this.spawnsAvailableForSpawning.splice(spawnIndex, 1);
+                    }
+                    return;
+                }
+            }
         }
     }
+    haulerBodyParts(): BodyPartConstant[] {
+        const multiples = Math.min(Math.floor(this.room.energyAvailable/150),7);
+        let body: BodyPartConstant[] = [];
 
+        for(let i=0;i<multiples;i++){
+            body.push(CARRY);
+            body.push(CARRY);
+            body.push(MOVE);
+        }
+        return body;
+    }
     workerBodyParts(): BodyPartConstant[] {
         if (this.room.energyAvailable<350){
             return [WORK, CARRY, MOVE, MOVE];
         }
         else {
-            const num_work_parts = Math.min(Math.floor((this.room.energyAvailable) / 200),4);
+            const num_work_parts = Math.min(Math.floor((this.room.energyAvailable) / 200),5);
             const body: BodyPartConstant[] = [];
             for(let i=0;i<num_work_parts;i++){
                 body.push(WORK);
@@ -439,12 +603,33 @@ export class Colony {
         }
     }
 
+    getBuilderNeed(): boolean {
+        const builders = this.room.find(FIND_MY_CREEPS, {
+            filter: (c) => c.memory.role === 'builder'
+        });
+        const constructionSites = this.room.find(FIND_CONSTRUCTION_SITES);
+        return builders.length < 1 && constructionSites.length > 0;
+    }
+
+    getUpgraderNeed(): boolean {
+        const upgraders = this.room.find(FIND_MY_CREEPS, {
+            filter: (c) => c.memory.role === 'upgrader'
+        });
+        if (this.storage !== undefined && this.storage !== null){
+            const targetUpgraders = Math.min(Math.max(this.storage.store[RESOURCE_ENERGY] / 40e3, 1), 10);
+            return targetUpgraders > upgraders.length;
+        }
+        else{
+            return upgraders.length < 5 && this.room.controller !== undefined;
+        }
+    }
+
     getMinerNeed(): boolean {
         /**
          * Checks if the colony wants to spawn a miner, based on the number of source containers and existing miners
          * @todo: if a miner is close to death then spawn one so that it can start heading towards the site?
          */
-
+        // console.log(`Checking ${this.room.name} for miner need: ${this.sourceContainers.length} source containers and ${this.room.find(FIND_MY_CREEPS, { filter: (c) => c.memory.role === 'miner' }).length} existing miners`);
         const miners = this.room.find(FIND_MY_CREEPS, {
             filter: (c) => c.memory.role === 'miner'
         });
@@ -452,12 +637,52 @@ export class Colony {
         return miners.length < this.sourceContainers.length;
     }
 
-    getWorkerNeed(): boolean {
-        const workers = _.filter(Game.creeps, (c:Creep) =>
-        (c.memory as WorkerMemory).role == 'worker' &&
-        c.room.name == this.room.name
-        );
+    getPorterNeed(): boolean {
+        /**
+         * checks if a 'porter' needs to be spawned to move energy from storage to the filler and upgrader containers
+         */
+        const porters = this.room.find(FIND_MY_CREEPS, {
+            filter: (c) => c.memory.role === 'porter'
+        });
+        if(this.storage!== undefined && this.storage.store[RESOURCE_ENERGY] > 0 && (this.sourceContainers.find(s=>s.store[RESOURCE_ENERGY]<s.store.getCapacity(RESOURCE_ENERGY))||this.upgradeContainers.find(s=>s.store[RESOURCE_ENERGY]<s.store.getCapacity(RESOURCE_ENERGY)))) {
+            return porters.length < 1;
+        }
+        else{
+            return false;
+        }
+    }
 
+    getHaulerNeed(): boolean {
+        // for each source, need to calculate the number of hauler parts required, which is a function of the number of mining parts
+        // assigned to the mining task at each one
+
+
+        // get the number of existing haul parts, filter Game.creeps by those assigned to this colony
+        let existingHaulerParts = 0;
+        for(let creepName in Game.creeps){
+            const creep = Game.creeps[creepName];
+            if(creep.memory.role === 'hauler' && creep.memory.colony === this.room.name){
+                // add the number of carry parts to the existingHaulerParts
+                existingHaulerParts += creep.body.filter(part => part.type === CARRY).length;
+            }
+        }
+
+        // console.log(`Number of haul parts needed/existing is ${this.memory.haulerPartsNeeded ?? 0} / ${existingHaulerParts}`)
+        return (this.memory.haulerPartsNeeded ?? 0) > existingHaulerParts;
+    }
+
+    getScoutNeed(): boolean {
+        const scouts = this.creeps.filter(c=>c.memory.role === `scout`);
+        // console.log(`Colony ${this.room.name} has ${scouts.length} scouts`);
+        const scoutTasks = getAllTaskMemory().filter(t=>t.type === `SCOUT` && t.colony === this.room.name);
+        // console.log(`Colony ${this.room.name} has ${scoutTasks.length} scout tasks`);
+        // console.log(`Colony ${this.room.name} needs a scout: ${scouts.length < 1 && scoutTasks.length > 0}`);
+        return scouts.length < 1 && scoutTasks.length > 0;
+
+    }
+
+    getWorkerNeed(): boolean {
+        const workers = this.creeps.filter(c=> c.memory.role == `worker`);
         const unassignedWorkerTasks = Object.values(Memory.tasks).filter(task =>
             task.colony === this.room.name &&
             task.status === 'PENDING' &&
@@ -470,7 +695,7 @@ export class Colony {
             filter: (c) => c.memory.role === 'miner'
         });
 
-        if (workers.length < 12){
+        if (workers.length < 10){
             // console.log(`in here`);
             if(miners.length>0){
                 if (workers.length < 6) {
@@ -521,23 +746,24 @@ export class Colony {
                 break;
             case 'UPGRADE':
                 // if there is an upgrade container in the room, pickup from there and upgrade similar to the fill task
+                // console.log(this.upgradeContainers)
                 if (this.upgradeContainers.length>0){
                     if (creep.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
+                        // console.log(`Creep ${creep.name} is full of energy, switching to working`);
                         // mark the creep as working
                         creep.memory.working = true;
                     }
                     //if the creep energy store is empty then change to not working
-                    if (creep.store.getUsedCapacity(RESOURCE_ENERGY) === 0) {
-                        // if none of the upgrade containers have energy, mark the task as finished
-                        if (this.upgradeContainers.every(c => c.store[RESOURCE_ENERGY] === 0)) {
-                            task.status = `DONE`;
-                            delete creep.memory.taskId;
-                            break;
-                        }
+                    if (creep.store[RESOURCE_ENERGY] === 0) {
+                        task.status = `DONE`;
+                        delete creep.memory.taskId;
                         creep.memory.working = false;
+                        break;
                     }
+                    // console.log(creep.memory.working);
                     if(creep.memory.working){
                         // upgrade the controller, if not in range move to it
+                        // console.log(`Creep ${creep.name} is upgrading the controller`);
                         if (creep.upgradeController(target as StructureController) === ERR_NOT_IN_RANGE) {
                             creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
                         }
@@ -555,6 +781,7 @@ export class Colony {
                         delete creep.memory.taskId;
                         break;
                     }
+                    // console.log(`Creep ${creep.name} is upgrading the controller`);
                     if (creep.upgradeController(target as StructureController) === ERR_NOT_IN_RANGE) {
                         creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
                     }
@@ -697,6 +924,95 @@ export class Colony {
                     creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
                 }
                 if(creep.withdraw(target as AnyStructure, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+                    creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+                }
+                break;
+            case `SCOUT`:
+                if(task.targetRoom!== undefined){
+
+                    let srMem = getScoutedRoomMemory(task.targetRoom);
+                    // console.log(`Room ${task.targetRoom} has scouted memory ${JSON.stringify(srMem)}`);
+                    if(srMem!== undefined){
+                        // console.log(`Room ${task.targetRoom} was last scouted at ${srMem.lastScouted}`);
+                        if(srMem.lastScouted!== undefined){
+                            if(srMem.lastScouted + 1000 > Game.time){
+                                delete creep.memory.taskId;
+                                task.status = `DONE`;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if(creep.room.name !== task.targetRoom || !creep.pos.isInsideRoom()) {
+                    creep.safeMoveTo(new RoomPosition(25, 25, task.targetRoom??creep.room.name), {visualizePathStyle: {stroke: '#ffffff'}});
+                }
+                else {
+                    updateCachedRoomDataForRoom(task.targetRoom);
+                    delete creep.memory.taskId;
+                    task.status = `DONE`;
+                    break;
+                }
+                break;
+            case `CLAIM`:
+                // if we own the controller in the room then the task is done
+                if((creep.room.name == task.targetRoom) && Game.rooms[task.targetRoom]?.controller?.my){
+                    delete creep.memory.taskId;
+                    task.status = `DONE`;
+                    break;
+                }
+                // if we can't claim the controller then move towards it
+                if(task.targetRoom !== undefined){
+                    // console.log(creep.pos.isInsideRoom());
+                    if(creep.room.name != task.targetRoom || !creep.pos.isInsideRoom()){
+                        // console.log(`Creep at position ${creep.pos} to claim room ${task.targetRoom}`);
+                        creep.moveTo(new RoomPosition(25, 25, task.targetRoom), {visualizePathStyle: {stroke: '#ffffff'}});
+                    }
+                    if (creep.claimController(Game.rooms[task.targetRoom]?.controller as StructureController) === ERR_NOT_IN_RANGE) {
+                        creep.safeMoveTo(Game.rooms[task.targetRoom]?.controller as StructureController, {visualizePathStyle: {stroke: '#ffffff'}});
+                    }
+                }
+
+                break;
+            case `DISMANTLE`:
+                if(!creep.memory.colony) {
+                    console.log(`Creep at ${creep.pos} is not assigned to a colony`);
+                    break;
+                }
+                if(!creep.memory.taskId) break;
+
+                const taskMem = getTaskMemory(creep.memory.taskId);
+
+                if(taskMem.targetRoom == undefined) break;
+                if(taskMem.targetId === undefined) break;
+
+                if(creep.room.name !== taskMem.targetRoom || !creep.pos.isInsideRoom()) {
+                    // move to the colony
+                    creep.safeMoveTo(new RoomPosition(25, 25, taskMem.targetRoom), {visualizePathStyle: {stroke: '#ffffff'}});
+                }
+                else{
+
+                    if(creep.dismantle(Game.getObjectById(taskMem.targetId) as Structure) === ERR_NOT_IN_RANGE) {
+                        creep.safeMoveTo(Game.getObjectById(taskMem.targetId) as Structure, {visualizePathStyle: {stroke: '#ffffff'}});
+                    }
+                }
+                if(Game.getObjectById(taskMem.targetId) === null || Game.getObjectById(taskMem.targetId)?.hits === 0) {
+                    delete creep.memory.taskId;
+                    task.status = `DONE`;
+                }
+
+                break;
+            case `WALLREPAIR`:
+                if(creep.store[RESOURCE_ENERGY] === 0) {
+                    delete creep.memory.taskId;
+                    task.status = `DONE`;
+                    break;
+                }
+                if (Game.getObjectById(task.targetId) === null) {
+                    task.status = `DONE`;
+                    delete creep.memory.taskId;
+                    break;
+                }
+                if (creep.repair(target) === ERR_NOT_IN_RANGE) {
                     creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
                 }
                 break;

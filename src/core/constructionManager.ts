@@ -13,6 +13,7 @@ export class ConstructionManager {
         plannedSites.sort((a, b) => a.priority - b.priority);
 
         for (const site of plannedSites) {
+            if(site.structureType == STRUCTURE_WALL || site.structureType == STRUCTURE_RAMPART) continue;
             // check if the number of that type of structure in the room is equal to or less than the allowed amount
             const existingStructures = room.find(FIND_MY_STRUCTURES, { filter: s => s.structureType === site.structureType });
             // also need to find existingConstructionSites of the same type
@@ -46,6 +47,22 @@ export class ConstructionManager {
 
             }
 
+        }
+    }
+
+    static placeWallsAndRamparts(room: Room, plannedSites: {pos: RoomPosition, structureType: BuildableStructureConstant, priority: number}[]) {
+        /**
+         * Places walls and ramparts in the room based on the planned sites in memory.
+         * @param room The room to place walls and ramparts in.
+         * @param plannedSites The planned construction sites from memory.
+         */
+
+        for (const site of plannedSites) {
+            if (site.structureType === STRUCTURE_WALL || site.structureType === STRUCTURE_RAMPART) {
+                const pos = new RoomPosition(site.pos.x, site.pos.y, room.name);
+                pos.createConstructionSite(site.structureType);
+                console.log(`Placing construction site for ${site.structureType} at ${pos.x}, ${pos.y} in room ${room.name}`);
+            }
         }
     }
 }

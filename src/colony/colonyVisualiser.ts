@@ -1,4 +1,4 @@
-import { getAllTaskMemory } from "core/memory";
+import { getAllTaskMemory, getCreepMemory, getTaskMemory } from "core/memory";
 import { Colony } from "./colony";
 import {profile} from "Profiler";
 
@@ -64,18 +64,21 @@ export class ColonyVisualizer {
         // show the location, type and target of the 5 highest priority tasks
         const highestPriorityTasks = tasks
             .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
-            .slice(0, 5);
+            .slice(0, 15);
 
-        y = 7;
+        y += 2;
         for (const task of highestPriorityTasks) {
-            visual.text(`${task.type} with priority ${task.priority} and target ${task.targetId}, status: ${task.status}, assigned to ${task.assignedCreep}`, 1, y,
-                {
-                    align: 'left',
-                    color: 'white',
-                    font: 'bold 2px Arial'
-                }
-            );
+            if(this.colony.memory.visualisePlannedStructures?? false) {
+                visual.text(`${task.type} with priority ${task.priority} and target ${task.targetId}, status: ${task.status}, assigned to ${task.assignedCreep}`, 1, y,
+                    {
+                        align: 'left',
+                        color: 'white',
+                        font: 'bold 2px Arial'
+                    }
+                );
+
             y++;
+            }
         }
 
         y+=2;
@@ -129,8 +132,34 @@ export class ColonyVisualizer {
             const sitePos = new RoomPosition(site.pos.x, site.pos.y, this.colony.room.name);
 
             // if(site.structureType === STRUCTURE_TOWER){
-            visual.circle(sitePos, {radius: 0.5, fill: colorMap[site.structureType]??'white', opacity: 0.1});
+            // if there isn't a structure on the site then visualise it
+            if(this.colony.memory.visualisePlannedStructures?? false){
+                visual.circle(sitePos, {radius: 0.5, fill: colorMap[site.structureType]??'white', opacity: 0.1});
+
+            // visual.circle(sitePos, {radius: 0.5, fill: colorMap[site.structureType]??'white', opacity: 0.1});
+            }
+
+            // any creep doing task should be visualised, and the task target should be highlighted in the same colour as the creep
+
+            // for(const creep of this.colony.creeps) {
+            //     const task = getTaskMemory(getCreepMemory(creep.name).taskId as string);
+            //     if(task && task.colony === this.colony.room.name) {
+            //         if(task.targetId){
+            //             const target = Game.getObjectById(task.targetId);
+            //             if(target) {
+            //                 if(this.colony.memory.creepColors === undefined){
+            //                     this.colony.memory.creepColors = {};
+            //                 }
+            //                 if(this.colony.memory.creepColors[creep.name] === undefined){
+            //                     this.colony.memory.creepColors[creep.name] = Math.floor(Math.random()*16777215).toString(16);
+            //                 }
+            //                 visual.circle(target.pos, {radius: 0.5, fill: `#${this.colony.memory.creepColors[creep.name]}`, opacity: 0.1});
+            //                 visual.circle(creep.pos, {radius: 0.5, fill: `#${this.colony.memory.creepColors[creep.name]}`, opacity: 0.1});
+            //             }
+            //         }
+            //     }
             // }
+
         }
     }
 }
