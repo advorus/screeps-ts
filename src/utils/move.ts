@@ -16,6 +16,25 @@ declare global {
 }
 
 Creep.prototype.safeMoveTo = function(target: RoomPosition | RoomObject, opts?: MoveToOpts): ScreepsReturnCode {
+    let targetPos: RoomPosition;
+    if(target instanceof RoomObject) {
+        targetPos = target.pos;
+    } else {
+        targetPos = target;
+    }
+
+    if(opts==undefined) opts = {};
+    opts.reusePath = 5;
+    opts.costCallback = (roomName,costMatrix) => {
+        if(checkIfHostileRoom(roomName)&&roomName!==targetPos.roomName){
+            for(let i=0;i<50;i++){
+                for(let j=0;j<50;j++){
+                    costMatrix.set(i,j,999);
+                }
+            }
+        }
+    }
+
     const pos = target instanceof RoomObject ? target.pos : target;
     const hostiles = this.room.find(FIND_HOSTILE_CREEPS, {
         filter: c => c.pos.inRangeTo(this.pos, 5)
@@ -36,18 +55,18 @@ Creep.prototype.safeMoveTo = function(target: RoomPosition | RoomObject, opts?: 
         targetRoom = target.roomName;
     }
 
-    if(targetRoom !== this.room.name && !this.pos.isInsideRoom()){
+    if(targetRoom !== this.room.name || !this.pos.isInsideRoom()){
         // the creep is pathing to a different room;
         this.say(`🚪 to ${targetRoom}`);
         if(this.memory.taskId !== undefined){
             let taskMem = getTaskMemory(this.memory.taskId);
-            console.log(taskMem.type);
+            // console.log(taskMem.type);
             if(taskMem.type == `SCOUT`){
                 // if the task is a scout task then just move normally
                 return this.moveTo(pos, opts);
             }
         }
-        return this.betterMoveTo(pos, opts);
+        return this.moveTo(pos, opts);
     }
 
     return this.moveTo(pos, opts);
@@ -88,6 +107,7 @@ Creep.prototype.betterMoveTo = function(location: RoomPosition, opts?: MoveToOpt
         find_new_path = true;
     }
     if(find_new_path){
+        console.log(`Creep ${this.name} is finding a new path to ${location}`);
         let targetPos = new RoomPosition(location.x, location.y, location.roomName);
         // generate a new path to the target and store it in memory
         let path = PathFinder.search(
@@ -100,8 +120,10 @@ Creep.prototype.betterMoveTo = function(location: RoomPosition, opts?: MoveToOpt
                     if(!room) return false;
                     // exclude any hostile rooms
                     // console.log(roomName);
+                    // console.log(`${roomName} is hostile: ${checkIfHostileRoom(roomName)} and is equal to the target room: ${roomName === targetPos.roomName}`);
                     if(checkIfHostileRoom(roomName)){
                         // console.log("Hostile room: "+roomName);
+                        //check if this room is also the target
                         return false;
                     }
                     // console.log("friendly room: "+roomName);
@@ -136,21 +158,24 @@ Creep.prototype.betterMoveTo = function(location: RoomPosition, opts?: MoveToOpt
         if (path.incomplete){
             // console.log("there was an error finding the path...")
         }
-        // console.log("path from"+this.pos+" to "+location+" is:"+path.path+" avoiding rooms "+Memory.hostileRooms);
+        console.log("path from"+this.pos+" to "+location+" is:"+path.path+" avoiding rooms "+Memory.hostileRooms);
         this.memory.path = path.path;
     }
     // console.log("path is:"+this.memory.path);
     // determine which stage of the path the creep has reached then move to the next step. if it matches no step then do the first move
     let current_step = 0;
     if(this.memory.path!==undefined){
-        for (let a=0;a<this.memory.path.length;a++){
-            if(this.pos.isEqualTo(this.memory.path[a])){
-                current_step = a+1;
-            }
-        }
-        if(this.memory.path[current_step]!== undefined){
-            return this.moveTo(this.memory.path[current_step]);
-        }
+        return this.moveByPath(this.memory.path);
+        // for (let a=0;a<this.memory.path.length;a++){
+        //     if(this.pos.isEqualTo(this.memory.path[a])){
+        //         current_step = a+1;
+        //     }
+        // }
+        // if(this.memory.path[current_step]!== undefined){
+        //     return this.moveTo(this.memory.path[current_step]);
+        // } else{
+        //     return this.moveTo(this.memory.path[1]);
+        // }
     }
 
     return this.moveTo(this.pos);

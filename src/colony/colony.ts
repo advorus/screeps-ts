@@ -87,6 +87,7 @@ export class Colony {
         this.memory.plannedConstructionSites ??= [];
         this.memory.focusOnUpgrade ??= false;
         this.memory.haulerPartsNeeded ??= 0;
+        this.memory.remoteSources ??= [];
 
         this.setFocusOnUpgrade();
         this.setFillerContainerIds();
@@ -604,17 +605,13 @@ export class Colony {
     }
 
     getBuilderNeed(): boolean {
-        const builders = this.room.find(FIND_MY_CREEPS, {
-            filter: (c) => c.memory.role === 'builder'
-        });
+        const builders = this.creeps.filter(c => c.memory.role === 'builder');
         const constructionSites = this.room.find(FIND_CONSTRUCTION_SITES);
         return builders.length < 1 && constructionSites.length > 0;
     }
 
     getUpgraderNeed(): boolean {
-        const upgraders = this.room.find(FIND_MY_CREEPS, {
-            filter: (c) => c.memory.role === 'upgrader'
-        });
+        const upgraders = this.creeps.filter(c => c.memory.role === 'upgrader');
         if (this.storage !== undefined && this.storage !== null){
             const targetUpgraders = Math.min(Math.max(this.storage.store[RESOURCE_ENERGY] / 40e3, 1), 10);
             return targetUpgraders > upgraders.length;
@@ -630,10 +627,7 @@ export class Colony {
          * @todo: if a miner is close to death then spawn one so that it can start heading towards the site?
          */
         // console.log(`Checking ${this.room.name} for miner need: ${this.sourceContainers.length} source containers and ${this.room.find(FIND_MY_CREEPS, { filter: (c) => c.memory.role === 'miner' }).length} existing miners`);
-        const miners = this.room.find(FIND_MY_CREEPS, {
-            filter: (c) => c.memory.role === 'miner'
-        });
-
+        const miners = this.creeps.filter(c=>c.memory.role === 'miner');
         return miners.length < this.sourceContainers.length;
     }
 
@@ -641,9 +635,7 @@ export class Colony {
         /**
          * checks if a 'porter' needs to be spawned to move energy from storage to the filler and upgrader containers
          */
-        const porters = this.room.find(FIND_MY_CREEPS, {
-            filter: (c) => c.memory.role === 'porter'
-        });
+        const porters = this.creeps.filter(c=>c.memory.role === 'porter');
         if(this.storage!== undefined && this.storage.store[RESOURCE_ENERGY] > 0 && (this.sourceContainers.find(s=>s.store[RESOURCE_ENERGY]<s.store.getCapacity(RESOURCE_ENERGY))||this.upgradeContainers.find(s=>s.store[RESOURCE_ENERGY]<s.store.getCapacity(RESOURCE_ENERGY)))) {
             return porters.length < 1;
         }
@@ -928,25 +920,24 @@ export class Colony {
                 }
                 break;
             case `SCOUT`:
-                if(task.targetRoom!== undefined){
-
-                    let srMem = getScoutedRoomMemory(task.targetRoom);
-                    // console.log(`Room ${task.targetRoom} has scouted memory ${JSON.stringify(srMem)}`);
-                    if(srMem!== undefined){
-                        // console.log(`Room ${task.targetRoom} was last scouted at ${srMem.lastScouted}`);
-                        if(srMem.lastScouted!== undefined){
-                            if(srMem.lastScouted + 1000 > Game.time){
-                                delete creep.memory.taskId;
-                                task.status = `DONE`;
-                                break;
-                            }
-                        }
-                    }
-                }
                 if(creep.room.name !== task.targetRoom || !creep.pos.isInsideRoom()) {
                     creep.safeMoveTo(new RoomPosition(25, 25, task.targetRoom??creep.room.name), {visualizePathStyle: {stroke: '#ffffff'}});
                 }
                 else {
+                    if(task.targetRoom!== undefined){
+                        let srMem = getScoutedRoomMemory(task.targetRoom);
+                        // console.log(`Room ${task.targetRoom} has scouted memory ${JSON.stringify(srMem)}`);
+                        if(srMem!== undefined){
+                            // console.log(`Room ${task.targetRoom} was last scouted at ${srMem.lastScouted}`);
+                            if(srMem.lastScouted!== undefined){
+                                if(srMem.lastScouted + 1000 > Game.time){
+                                    delete creep.memory.taskId;
+                                    task.status = `DONE`;
+                                    break;
+                                }
+                            }
+                        }
+                    }
                     updateCachedRoomDataForRoom(task.targetRoom);
                     delete creep.memory.taskId;
                     task.status = `DONE`;
@@ -974,6 +965,7 @@ export class Colony {
 
                 break;
             case `DISMANTLE`:
+                // console.log(`Creep ${creep.name} is dismantling structure`);
                 if(!creep.memory.colony) {
                     console.log(`Creep at ${creep.pos} is not assigned to a colony`);
                     break;
@@ -982,16 +974,18 @@ export class Colony {
 
                 const taskMem = getTaskMemory(creep.memory.taskId);
 
+                // console.log(taskMem.targetRoom, taskMem.targetId);
+
                 if(taskMem.targetRoom == undefined) break;
                 if(taskMem.targetId === undefined) break;
 
                 if(creep.room.name !== taskMem.targetRoom || !creep.pos.isInsideRoom()) {
                     // move to the colony
+                    // console.log(`Creep ${creep.name} moving to room ${taskMem.targetRoom} to dismantle structure ${taskMem.targetId}`);
                     creep.safeMoveTo(new RoomPosition(25, 25, taskMem.targetRoom), {visualizePathStyle: {stroke: '#ffffff'}});
                 }
                 else{
-
-                    if(creep.dismantle(Game.getObjectById(taskMem.targetId) as Structure) === ERR_NOT_IN_RANGE) {
+                     if(creep.dismantle(Game.getObjectById(taskMem.targetId) as Structure) === ERR_NOT_IN_RANGE) {
                         creep.safeMoveTo(Game.getObjectById(taskMem.targetId) as Structure, {visualizePathStyle: {stroke: '#ffffff'}});
                     }
                 }

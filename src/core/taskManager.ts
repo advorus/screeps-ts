@@ -1,7 +1,7 @@
 
 // import { Empire } from "./empire";
 import { get } from "lodash";
-import { getAllTaskMemory, getCreepMemory, getScoutedRoomMemory, getTaskMemory } from "./memory";
+import { getAllTaskMemory, getCreepMemory, getScoutedRoomMemory, getTaskMemory, removeHostileRoom } from "./memory";
 // import { Colony } from "colony/colony";
 // import { Empire } from "./empire";
 import {profile} from "Profiler";
@@ -24,6 +24,8 @@ export class TaskManager {
                 return 5;
             case STRUCTURE_TOWER:
                 return 4;
+            case STRUCTURE_STORAGE:
+                return 3;
             case STRUCTURE_EXTENSION:
                 return 2;
             case STRUCTURE_CONTAINER:
@@ -154,8 +156,11 @@ export class TaskManager {
             return;
         }
 
+        // if(creep.memory.role == `scout`) console.log(`Scout creep ${creep.name} is checking for tasks`);
+
         for(const task of availableTasks) {
             if(task.id!==undefined && task.targetId!==undefined) {
+                // if(task.type==`SCOUT`) console.log(`Checking if task ${task.id} can be assigned to creep ${creep.name}`);
                 // Check if the creep can perform the task
                 if (task.type === 'HARVEST' && creep.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
                         continue;
@@ -276,18 +281,39 @@ export class TaskManager {
 
     static createTasks(focus: ColonyLike | EmpireLike) {
         if ("colonies" in focus) {
+            // console.log(focus.dismantleTargets);
+
             for(const colony of focus.colonies) {
                 this.createColonyTasks(colony);
             }
             //create dismantle tasks and assign them to the nearest room
-            for(let roomName in focus.dismantleTargets) {
+
+            for(let roomName of focus.dismantleTargets) {
+                removeHostileRoom(roomName);
+                // console.log(`Creating dismantle tasks for room ${roomName}`);
                 let scoutedRoomData = getScoutedRoomMemory(roomName);
                 if(scoutedRoomData){
+                    // console.log(`Found scouted room data for ${roomName}`);
                     if(getAllTaskMemory().filter(t=>t.type == `DISMANTLE` && t.targetRoom == roomName).length > 3) continue;
                     let nearestColonyName = focus.getNearestColonyName(roomName);
+                    // console.log(`Nearest colony for room ${roomName} is ${nearestColonyName}`);
+                    if(!Object.keys(Game.rooms).includes(roomName)) {
+                        // need to get visbility of the room
+                        // create a scout task from the nearest colony
+                        if(nearestColonyName) {
+                            const colony = focus.colonies.find(c => c.room.name === nearestColonyName);
+                            if(this.checkIfExistingTask(`SCOUT`, colony.spawns[0] , nearestColonyName)) continue;
+                            this.createTask(`SCOUT`, colony.spawns[0] , nearestColonyName, 1, `scout`, roomName);
+                            console.log(`Created SCOUT task for room ${roomName} from colony ${nearestColonyName}`);
+                        }
+                        continue;
+                    }
                     if(!nearestColonyName) continue;
                     for(const targetId of scoutedRoomData.hostileStructures) {
-                        this.createTask('DISMANTLE', Game.getObjectById(targetId) as AnyStructure | Source, nearestColonyName, 0);
+                        console.log(targetId);
+                        if(Game.getObjectById(targetId) == null) continue;
+                        if(this.checkIfExistingTask(`DISMANTLE`, Game.getObjectById(targetId) as AnyStructure | Source, nearestColonyName)) continue;
+                        this.createTask(`DISMANTLE`, Game.getObjectById(targetId) as AnyStructure | Source, nearestColonyName, 1, `dismantle`, roomName);
                     }
                 }
 

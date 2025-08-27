@@ -128,7 +128,8 @@ export function updateCachedRoomDataForRoom(roomName:string): void{
     // determine also if the room is hostile/should be added to hostile rooms
     const hostiles = Game.rooms[roomName].find(FIND_HOSTILE_CREEPS);
     const hostileStructures = Game.rooms[roomName].find(FIND_HOSTILE_STRUCTURES).filter(s=>s.structureType==STRUCTURE_TOWER && s.store[RESOURCE_ENERGY]>500);
-    if (hostiles.length > 0 || hostileStructures.length > 0) {
+
+    if (hostiles.length > 0 && gameController && !gameController.my) {
         addHostileRoom(roomName);
     } else {
         removeHostileRoom(roomName);

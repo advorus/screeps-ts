@@ -1,6 +1,7 @@
 import { Colony } from "colony/colony";
-import { getEmpireMemory,getCreepMemory, getTaskMemory, addHostileRoom, getHostileRooms, updateCachedRoomData, getAllTaskMemory, getScoutedRoomMemory } from "core/memory";
+import { getEmpireMemory,getCreepMemory, getTaskMemory, addHostileRoom, getHostileRooms, updateCachedRoomData, getAllTaskMemory, getScoutedRoomMemory, checkIfHostileRoom } from "core/memory";
 import { TaskManager } from "core/taskManager";
+import { get } from "lodash";
 import { profile } from "Profiler";
 import { getAdjacentConnectedRooms } from "utils/room";
 
@@ -24,7 +25,7 @@ export class Empire {
     }
 
     init() {
-
+        // Memory.tasks = {};
         this.memory.lastTick = Game.time;
         if (Memory.tasks === undefined) {
             Memory.tasks = {};
@@ -57,7 +58,7 @@ export class Empire {
             if(this.colonies.find(c => c.room.name !== roomName)) {
                 if(!Object.values(Memory.tasks).find(t => t.type === 'CLAIM' && t.targetRoom === roomName)) {
                     // console.log(`Creating claim task for room ${roomName}`);
-                    console.log("testing");
+                    // console.log("testing");
                     TaskManager.createTask('CLAIM', this.colonies[0].spawns[0], this.colonies[0].room.name, 5, 'claimer', roomName);
                 }
             }
@@ -65,33 +66,37 @@ export class Empire {
         }
 
         // if a creep is in a room which is not a colony hub, then check if there are hostiles or hostile towers in that room
-        for(const creep of Object.values(Game.creeps)) {
-            if(this.colonies.find(c => c.room.name === creep.room.name) === undefined) {
-                const hostiles = creep.room.find(FIND_HOSTILE_CREEPS);
-                const hostileTowers = creep.room.find(FIND_HOSTILE_STRUCTURES, {
-                    filter: { structureType: STRUCTURE_TOWER }
-                });
-                if(hostiles.length > 0 || hostileTowers.length > 0) {
-                    console.log(`Creep ${creep.name} is in a hostile room: ${creep.room.name}`);
-                    addHostileRoom(creep.room.name);
-                }
-            }
-        }
+        // for(const creep of Object.values(Game.creeps)) {
+        //     if(this.colonies.find(c => c.room.name === creep.room.name) === undefined) {
+        //         const hostiles = creep.room.find(FIND_HOSTILE_CREEPS);
+        //         const hostileTowers = creep.room.find(FIND_HOSTILE_STRUCTURES, {
+        //             filter: { structureType: STRUCTURE_TOWER }
+        //         });
+        //         if(hostiles.length > 0 || hostileTowers.length > 0) {
+        //             console.log(`Creep ${creep.name} is in a hostile room: ${creep.room.name}`);
+        //             addHostileRoom(creep.room.name);
+        //         }
+        //     }
+        // }
 
         if(Game.time%100==0){
             console.log(`Empire has ${this.colonies.length} colonies and ${Object.values(Memory.tasks).length} tasks`);
+            console.log(`Allocating remote sources...`);
+            this.allocateRemoteSources();
         }
         if((Game.time+5)%100 == 0){
+            console.log(`Updating cached room data...`);
             updateCachedRoomData();
         }
 
 
+        this.dismantleTargets = [];
+        // this.dismantleTargets = ["E8S21"];
 
     }
 
     run() {
-        // console.log(`The next room to scout for room: ${this.colonies[0].room.name} is ${this.getRoomToScout(this.colonies[0],10)}`);
-
+        // console.log(`The next room to scout for room: ${this.colonies[1].room.name} is ${this.getRoomToScout(this.colonies[0],10)}`);
         // Empire-level task creation
         TaskManager.createTasks(this);
         // console.log(`Got here`);
@@ -128,7 +133,7 @@ export class Empire {
                 // check if the room has a scout task
                 if(!getAllTaskMemory().find(task => task.type === 'SCOUT' && task.colony === colony.room.name)){
                     //if not, create one using the nearest room to scout
-                    const nearestRoom = this.getRoomToScout(colony, 4);
+                    const nearestRoom = this.getRoomToScout(colony, 6);
                     if (nearestRoom) {
                         TaskManager.createTask("SCOUT", colony.room.controller as StructureController, colony.room.name, 1, 'scout', nearestRoom);
                     }
@@ -153,6 +158,18 @@ export class Empire {
         for (const colony of this.colonies){
             // Run the colony logic, including task execution
             colony.run();
+        }
+
+        for(let roomName of Object.keys(Memory.scoutedRooms)){
+            // generate a game.map.visual of a tick over the room, containing key info
+            // if the room is in hostile rooms display that info too
+            const centerPos = new RoomPosition(25,25,roomName)
+            if (checkIfHostileRoom(roomName)){
+                Game.map.visual.text(`❌`, centerPos, { align: 'center', opacity: 0.8, color: 'red' });
+            } else{
+               Game.map.visual.text(`✅ - ${getScoutedRoomMemory(roomName)?.sources.length}s`,centerPos, { align: 'center', opacity: 0.8 });
+            }
+
         }
     }
 
@@ -256,8 +273,9 @@ export class Empire {
             if(depth > maxSearchDepth) continue;
             if(visited.has(room)) continue;
             visited.add(room);
+            // console.log(`Visiting room ${room} at depth ${depth}`);
 
-            if(!hostileRooms.includes(room) && !colonyRooms.includes(room)){
+            if(!(getHostileRooms().some(r=>r.roomName==room && r.lastSeen > Game.time - 2000)) && !colonyRooms.includes(room)){
                 let srMem = getScoutedRoomMemory(room);
                 if(srMem === undefined) {
                     // console.log(`Room ${room} has not been scouted yet, returning as room to scout`);
@@ -268,7 +286,7 @@ export class Empire {
                 }
             }
 
-            if(hostileRooms.includes(room) || Object.keys(this.colonies).includes(room)) {
+            if(getHostileRooms().some(r=>r.roomName==room && r.lastSeen > Game.time - 1500) || Object.keys(this.colonies).includes(room)) {
                 // If we found a hostile room, we need to remember it
                 continue;
             }
@@ -283,6 +301,39 @@ export class Empire {
         }
 
         return null;
+    }
+
+    allocateRemoteSources(): void {
+        for(const colony of this.colonies){
+            //set all remote sources to empty as we are going to reallocate
+            // and there could be new closer rooms since the last allocation
+            colony.memory.remoteSources = [];
+        }
+
+        for(const remoteRoom of Object.keys(Memory.scoutedRooms)){
+            if(checkIfHostileRoom(remoteRoom)) continue; // cannot allocate hostile room sources
+
+            const scoutedRoomMemory = getScoutedRoomMemory(remoteRoom);
+            if(!scoutedRoomMemory) continue;
+            if(scoutedRoomMemory.sources.length === 0) continue;
+
+            // now get the closest colony to the remote room
+            const closestColonyName = this.getNearestColonyName(remoteRoom)
+            if(!closestColonyName) continue;
+            if(Game.map.getRoomLinearDistance(closestColonyName, remoteRoom) > 2) continue; //don't assign remote sources a long way from the colony
+
+            const closestColony = this.colonies.find(c => c.room.name === closestColonyName);
+            if(!closestColony) continue;
+            if(closestColony.spawns.length === 0) continue; // don't assign remote sources if the colony has no spawns
+
+            // allocate the sources in the remote room to the closest colony
+            for(const sourceId of scoutedRoomMemory.sources){
+                const source = Game.getObjectById(sourceId as Id<Source>) as Source | null;
+                if(!source) continue;
+                closestColony.memory.remoteSources ??= [];
+                closestColony.memory.remoteSources.push({id: source.id, active: true, distance: Game.map.getRoomLinearDistance(closestColonyName, remoteRoom), pos_x: source.pos.x, pos_y: source.pos.y, roomName: remoteRoom});
+            }
+        }
     }
 
 }

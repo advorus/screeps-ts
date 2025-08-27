@@ -49,6 +49,7 @@ declare global {
         wallRepairThreshold: number;
         repairTargets?: {id: string, active: boolean }[];
         haulerPartsNeeded?: number;
+        remoteSources?: {id:string, active: boolean, distance: number, pos_x:number, pos_y:number, roomName: string}[];
     }
 
     interface EmpireMemory {
@@ -82,7 +83,7 @@ declare global {
 
     interface TaskMemory {
         id?: string;
-        type?: 'HARVEST' | "HAUL" | "BUILD" | "UPGRADE" | "MINE" | "SCOUT" | "PICKUP" | "FILL" | "REPAIR" | "CLAIM" | "WALLREPAIR" | "DISMANTLE" | "DUO_HEAL" | "DUO_ATTACK";
+        type?: 'HARVEST' | "HAUL" | "BUILD" | "UPGRADE" | "MINE" | "SCOUT" | "PICKUP" | "FILL" | "REPAIR" | "CLAIM" | "WALLREPAIR" | "DISMANTLE";
         targetId?: Id<any>;
         assignedCreep?: string;
         status?: "PENDING" | "IN_PROGRESS" | "DONE";
@@ -91,6 +92,15 @@ declare global {
         role?: string;
         targetRoom?: string;
     }
+
+    // interface GroupTaskMemory extends TaskMemory{
+    //     type: `DUO_ATTACK` | `DUO_DEFEND` | `DUO_PESTER`;
+    //     members: string[]; // array of creep names assigned
+    //     targetRoom: string;
+    //     targetPos?: RoomPosition;
+    //     // objective: string;
+    //     status: "PENDING" | "IN_PROGRESS" | `DONE`;
+    // }
 
     interface Creep {
         safeMoveTo(target: RoomPosition | RoomObject, opts?: MoveToOpts): ScreepsReturnCode;
