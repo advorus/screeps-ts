@@ -14,7 +14,16 @@ export class TaskManager {
         }
         const id = `${type}_${Game.time}_${Math.random()}`;
         // console.log(targetRoom)
-        Memory.tasks[id] = {id, type, targetId: target.id, status: `PENDING`, colony, priority, role, targetRoom};
+        Memory.tasks[id] = {id, type, targetId: target.id, status: `PENDING`, colony, priority, role, targetRoom} as TaskMemory;
+        return id;
+    }
+
+    static createDuoTask(type: DuoTaskMemory[`type`], targetRoom: string, colony: string, priority:number = 0, objective:string): string {
+        if(!Memory.tasks) {
+            Memory.tasks = {};
+        }
+        const id = `${type}_${Game.time}_${Math.random()}`;
+        Memory.tasks[id] = {id, type, targetRoom, colony, priority, objective, status:`PENDING`, healer: undefined, attacker: undefined} as DuoTaskMemory;
         return id;
     }
 
@@ -160,6 +169,31 @@ export class TaskManager {
 
         for(const task of availableTasks) {
             if(task.id!==undefined && task.targetId!==undefined) {
+                //duo assignment logic
+                if(creep.memory.role == `duo_attacker`){
+                    if(`objective` in task){
+                        //then this is a duo task which can be assigned
+                        task.attacker = creep.name as string;
+                        creep.memory.taskId = task.id;
+
+                        // if there is healer in the task then set its status to in progress
+                        if(`healer` in task){
+                            task.status = `IN_PROGRESS`;
+                        }
+                    } else continue;
+                }
+                if(creep.memory.role == `duo_healer`){
+                    if(`objective` in task){
+                        task.healer = creep.name as string;
+                        creep.memory.taskId = task.id;
+
+                        if(`attacker` in task){
+                            task.status = `IN_PROGRESS`;
+                        }
+                    } else continue;
+                };
+                if("objective" in task) continue;
+
                 // if(task.type==`SCOUT`) console.log(`Checking if task ${task.id} can be assigned to creep ${creep.name}`);
                 // Check if the creep can perform the task
                 if (task.type === 'HARVEST' && creep.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
@@ -204,6 +238,13 @@ export class TaskManager {
                 if(creep.memory.role === `miner` && task.type !== `MINE`) {
                     continue;
                 }
+
+                if((task.type==`REMOTE_MINING` && creep.memory.role !== `remote_miner`)||(creep.memory.role == `remote_miner` && task.type !== `REMOTE_MINING`)) continue;
+
+                if(task.type == `REMOTE_PICKUP` && creep.memory.role !== `remote_hauler`) continue;
+                if(creep.memory.role == `remote_hauler` && task.type !== `REMOTE_PICKUP` && task.type!== `HAUL`) continue;
+                if(task.type == `REMOTE_PICKUP` && creep.store.getFreeCapacity() === 0) continue;
+
                 if(task.type === `MINE` && creep.memory.role !== `miner`) {
                     continue;
                 }
@@ -230,17 +271,20 @@ export class TaskManager {
                 task.assignedCreep = creep.name;
                 task.status = `IN_PROGRESS`;
                 creep.memory.taskId = task.id;
-                console.log(`Assigned task ${task.id} of type ${task.type} to creep ${creep.name}`)
+                // console.log(`Assigned task ${task.id} of type ${task.type} to creep ${creep.name}`)
 
                 // if the task is a haul task and the energy stored in all creeps assigned to drop off at the target is less than the target's free capacity, create another haul task
 
                 //get a list of all creeps assigned to drop off at the target
+
                 const assignedCreeps = Object.values(Game.creeps).filter(c => {
                     const memory = getCreepMemory(c.name);
                     if(memory === undefined) return false;
                     if(memory.taskId === undefined) return false;
-                    if (getTaskMemory(memory.taskId) === undefined) return false;
-                    return memory.taskId && getTaskMemory(memory.taskId).targetId === task.targetId;
+                    const assignedTask = getTaskMemory(memory.taskId);
+                    if(!assignedTask) return false;
+                    if(assignedTask.targetId === undefined) return false;
+                    return assignedTask && assignedTask.targetId === task.targetId;
                 });
                 //sum the amount of energy stored in these hauler creeps
                 const totalEnergy = assignedCreeps.reduce((sum, c) => sum + c.store.getUsedCapacity(RESOURCE_ENERGY), 0);
@@ -270,7 +314,7 @@ export class TaskManager {
                     //sum the amount of energy capacity of these creeps
                     const totalEnergyCapacity = assignedCreeps.reduce((sum, c) => sum + c.store.getFreeCapacity(RESOURCE_ENERGY), 0);
                     if (totalPickupAmount > totalEnergyCapacity) {
-                        console.log(`Creating a new ${task.type} task for ${task.targetId} in colony ${task.colony} because existing creeps cannot fulfil the energy requirement`);
+                        // console.log(`Creating a new ${task.type} task for ${task.targetId} in colony ${task.colony} because existing creeps cannot fulfil the energy requirement`);
                         this.createTask(task.type, Game.getObjectById(task.targetId) as AnyStructure | Source, task.colony as string, task.priority || 0);
                     }
                 }
@@ -302,8 +346,8 @@ export class TaskManager {
                         // create a scout task from the nearest colony
                         if(nearestColonyName) {
                             const colony = focus.colonies.find(c => c.room.name === nearestColonyName);
-                            if(this.checkIfExistingTask(`SCOUT`, colony.spawns[0] , nearestColonyName)) continue;
-                            this.createTask(`SCOUT`, colony.spawns[0] , nearestColonyName, 1, `scout`, roomName);
+                            if(this.checkIfExistingTask(`SCOUT`, colony.spawns[0] , nearestColonyName.name)) continue;
+                            this.createTask(`SCOUT`, colony.spawns[0] , nearestColonyName.name, 1, `scout`, roomName);
                             console.log(`Created SCOUT task for room ${roomName} from colony ${nearestColonyName}`);
                         }
                         continue;
@@ -312,8 +356,8 @@ export class TaskManager {
                     for(const targetId of scoutedRoomData.hostileStructures) {
                         console.log(targetId);
                         if(Game.getObjectById(targetId) == null) continue;
-                        if(this.checkIfExistingTask(`DISMANTLE`, Game.getObjectById(targetId) as AnyStructure | Source, nearestColonyName)) continue;
-                        this.createTask(`DISMANTLE`, Game.getObjectById(targetId) as AnyStructure | Source, nearestColonyName, 1, `dismantle`, roomName);
+                        if(this.checkIfExistingTask(`DISMANTLE`, Game.getObjectById(targetId) as AnyStructure | Source, nearestColonyName.name)) continue;
+                        this.createTask(`DISMANTLE`, Game.getObjectById(targetId) as AnyStructure | Source, nearestColonyName.name, 1, `dismantle`, roomName);
                     }
                 }
 
@@ -370,6 +414,46 @@ export class TaskManager {
         // console.log(`Got here`)
         this.createDismantleTasks(colony);
         this.createWallRepairTasks(colony);
+        this.createRemoteMiningTasks(colony);
+        this.createRemoteHaulingTasks(colony);
+    }
+
+    static createRemoteHaulingTasks(colony: ColonyLike) {
+        // console.log(`Creating remote hauling tasks for ${colony.room.name}`);
+        const activeRemoteRooms = colony.memory.remoteSources?.map(rs=>rs.room);
+        if(!activeRemoteRooms) return;
+        for (const roomName of activeRemoteRooms) {
+            if(!Object.keys(Game.rooms).includes(roomName)) continue;
+            // console.log(`Checking room: ${roomName} for remote hauling tasks`)
+            const resources = Game.rooms[roomName].find(FIND_DROPPED_RESOURCES);
+            for (const resource of resources) {
+                if (!this.checkIfExistingTask(`REMOTE_PICKUP`, resource, colony.room.name)) {
+                    this.createTask(`REMOTE_PICKUP`, resource, colony.room.name, 0, `remote_pickup`, roomName);
+                }
+            }
+        }
+    }
+
+    static createRemoteMiningTasks(colony: ColonyLike) {
+        if (!colony.memory.remoteSources) return;
+
+        for (const remoteSource of colony.memory.remoteSources) {
+            if (!remoteSource.active) continue;
+
+            if(!Object.keys(Game.rooms).includes(remoteSource.room)) {
+                console.log(`Remote room ${remoteSource.room} is not visible`);
+                // create a scout task to get visibility of the room
+                if(this.checkIfExistingTask(`SCOUT`, colony.spawns[0], colony.room.name)) continue;
+                this.createTask(`SCOUT`, colony.spawns[0], colony.room.name, 0, `visibility`, remoteSource.room);
+                continue;
+            }
+
+            const source = Game.getObjectById(remoteSource.id as Id<Source>) as Source | null;
+            if (!source) continue;
+
+            if(this.checkIfExistingTask(`REMOTE_MINING`, source, colony.room.name)) continue;
+            this.createTask(`REMOTE_MINING`, source, colony.room.name, 0, `remote_mining`, remoteSource.room);
+        }
     }
 
     static createDismantleTasks(colony: ColonyLike) {

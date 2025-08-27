@@ -37,7 +37,7 @@ export class Empire {
         Memory.scoutedRooms ??= {};
 
         // // delete any storage claim tasks
-        // const claimTasks = Object.values(Memory.tasks).filter(t => t.type === 'WALLREPAIR');
+        // const claimTasks = Object.values(Memory.tasks).filter(t => t.type === 'SCOUT');
         // for(const task of claimTasks){
         //     if(task.targetId){
         //         console.log(`Deleting claim task ${task.id} for storage`);
@@ -111,11 +111,16 @@ export class Empire {
             }
             else{
                 // console.log(`checking for specific worker needs`)
+                if (colony.getDuoAttackerNeed()) colony.spawnCreep('duo_attacker');
+                if (colony.getDuoHealerNeed()) colony.spawnCreep('duo_healer');
                 if (colony.getMinerNeed()) colony.spawnCreep('miner');
                 if (colony.getHaulerNeed()) colony.spawnCreep('hauler');
                 if (colony.getBuilderNeed()) colony.spawnCreep('builder');
                 if (colony.getUpgraderNeed()) colony.spawnCreep('upgrader');
                 if (colony.getScoutNeed()) colony.spawnCreep('scout');
+                if(colony.getRemoteMinerNeed()) colony.spawnCreep('remote_miner');
+                if(colony.getRemoteHaulerNeed()) colony.spawnCreep('remote_hauler');
+
             }
             if(colony.spawns.length<1){
                 // the first colony not with the colony names should spawn a builder, registered to the new colony name
@@ -131,7 +136,7 @@ export class Empire {
 
             if(Game.time%31 == 0){
                 // check if the room has a scout task
-                if(!getAllTaskMemory().find(task => task.type === 'SCOUT' && task.colony === colony.room.name)){
+                if(!getAllTaskMemory().find(task => task.type === 'SCOUT' && task.colony === colony.room.name && task.role !== `visibility`)){
                     //if not, create one using the nearest room to scout
                     const nearestRoom = this.getRoomToScout(colony, 6);
                     if (nearestRoom) {
@@ -210,11 +215,34 @@ export class Empire {
             }
             // remove assigned creeps from tasks if the creep is no longer in the game
             if (task.assignedCreep){
-                if(!(task.assignedCreep in Game.creeps)) {
+                if(!(Object.keys(Game.creeps).includes(task.assignedCreep))) {
                     // console.log(`Creep ${task.assignedCreep} is no longer in the game and so removing it from task`);
                     delete Memory.tasks[taskId]
                 }
+            }
+            //
+        }
 
+        for(const taskId in Memory.tasks){
+            const task = getTaskMemory(taskId) as DuoTaskMemory;
+
+            if(`healer` in task && typeof task.healer === `string`){
+                if((task.healer as string).includes('something')){ // just to make typescript happy
+                    if(!(Object.keys(Game.creeps).includes(task.healer))){
+                        // the duo has been broken
+                        // console.log(`Healer creep ${task.healer} is no longer in the game and so removing it from task`);
+                        delete Memory.tasks[taskId];
+                    }
+                }
+            }
+            if(`attacker` in task && typeof task.attacker === `string`){
+                if((task.attacker as string).includes('something')){ // just to make typescript happy
+                    if(!(Object.keys(Game.creeps).includes(task.attacker))){
+                        // the duo has been broken
+                        // console.log(`Attacker creep ${task.attacker} is no longer in the game and so removing it from task`);
+                        delete Memory.tasks[taskId];
+                    }
+                }
             }
         }
 
@@ -229,28 +257,45 @@ export class Empire {
 
         this.memory.cpuUsage ??= [];
         this.memory.cpuUsage.push(Game.cpu.getUsed());
-        if(this.memory.cpuUsage.length > 100) this.memory.cpuUsage.shift();
+        if(this.memory.cpuUsage.length > 1000) this.memory.cpuUsage.shift();
         const avgCpu = _.sum(this.memory.cpuUsage) / this.memory.cpuUsage.length;
         if (Game.time % 25 === 0) {
-            console.log(`Empire: Average CPU usage over last 100 ticks: ${avgCpu}`);
+            console.log(`Empire: Average CPU usage over last 1000 ticks: ${avgCpu}`);
+            if(avgCpu < 0.7 * Game.cpu.limit) {
+                this.turnOnSingleRemoteSource();
+            }
+            if(avgCpu > 0.9 * Game.cpu.limit) {
+                this.turnOffSingleRemoteSource();
+            }
         }
+
 
         // console.log(Game.cpu.getUsed());
     }
 
-    getNearestColonyName(roomName: string): string | null {
+    getNearestColonyName(roomName: string): {name:string, distance: number} | null {
         let nearestColony: Colony | null = null;
         let nearestDistance = Infinity;
 
         for (const colony of this.colonies) {
-            const distance = Game.map.getRoomLinearDistance(colony.room.name, roomName);
+            const routeBtwRooms = Game.map.findRoute(colony.room.name, roomName, {
+                routeCallback(roomName, fromRoomName) {
+                    if(checkIfHostileRoom(roomName)) return Infinity;
+                    return 1;
+                }
+            });
+            let distance = Infinity;
+            if (routeBtwRooms == -2) continue;
+            else{
+                distance = routeBtwRooms.length;
+            }
             if (distance < nearestDistance) {
                 nearestDistance = distance;
                 nearestColony = colony;
             }
         }
 
-        return nearestColony ? nearestColony.room.name : null;
+        return nearestColony ? {name: nearestColony.room.name, distance: nearestDistance} : null;
     }
 
     getRoomToScout(colony:Colony, maxSearchDepth: number = 10): string | null{
@@ -311,6 +356,7 @@ export class Empire {
         }
 
         for(const remoteRoom of Object.keys(Memory.scoutedRooms)){
+            console.log(`Trying to allocate remote sources in ${remoteRoom}`);
             if(checkIfHostileRoom(remoteRoom)) continue; // cannot allocate hostile room sources
 
             const scoutedRoomMemory = getScoutedRoomMemory(remoteRoom);
@@ -320,21 +366,67 @@ export class Empire {
             // now get the closest colony to the remote room
             const closestColonyName = this.getNearestColonyName(remoteRoom)
             if(!closestColonyName) continue;
-            if(Game.map.getRoomLinearDistance(closestColonyName, remoteRoom) > 2) continue; //don't assign remote sources a long way from the colony
+            if(closestColonyName.distance > 3 ) continue; //don't assign remote sources a long way from the colony
 
-            const closestColony = this.colonies.find(c => c.room.name === closestColonyName);
+            const closestColony = this.colonies.find(c => c.room.name === closestColonyName.name);
             if(!closestColony) continue;
             if(closestColony.spawns.length === 0) continue; // don't assign remote sources if the colony has no spawns
 
             // allocate the sources in the remote room to the closest colony
             for(const sourceId of scoutedRoomMemory.sources){
-                const source = Game.getObjectById(sourceId as Id<Source>) as Source | null;
-                if(!source) continue;
+                // this will only allocate sources that we can currently see
+                // const source = Game.getObjectById(sourceId as Id<Source>) as Source | null;
+                // if(!source) continue;
                 closestColony.memory.remoteSources ??= [];
-                closestColony.memory.remoteSources.push({id: source.id, active: true, distance: Game.map.getRoomLinearDistance(closestColonyName, remoteRoom), pos_x: source.pos.x, pos_y: source.pos.y, roomName: remoteRoom});
+                closestColony.memory.remoteSources.push({id: sourceId, active: false, distance: closestColonyName.distance, room: remoteRoom});
             }
         }
     }
 
-}
+    turnOnSingleRemoteSource(): void {
+        // find the best source (as determined by distance) across the colonies and set its active flag
+        let bestSource = null;
+        for(const colony of this.colonies){
+            if(!colony.room.controller) continue;
+            if(colony.room.controller.level <3) continue;
+            if(colony.memory.remoteSources === undefined) continue;
+            for(const remoteSource of colony.memory.remoteSources){
+                if(remoteSource.active) continue;
+                if(!bestSource || remoteSource.distance < bestSource.distance){
+                    bestSource = remoteSource;
+                }
+            }
+        }
+        if(bestSource){
+            bestSource.active = true;
+            console.log(`Activated remote source ${bestSource.id} in room ${bestSource.room}`);
+        }
+    }
 
+    turnOffSingleRemoteSource(): void {
+        // find the worst source (as determined by distance across the colonies and set its active flag to false
+        let worstSource = null;
+        for(const colony of this.colonies){
+            if(colony.memory.remoteSources === undefined) continue;
+            for(const remoteSource of colony.memory.remoteSources){
+                if(!remoteSource.active) continue;
+                if(!worstSource || remoteSource.distance > worstSource.distance){
+                    worstSource = remoteSource;
+                }
+            }
+        }
+        if(worstSource){
+            worstSource.active = false;
+            console.log(`Deactivated remote source ${worstSource.id} in room ${worstSource.room}`);
+        }
+    }
+
+    turnOffAllRemoteSources(): void {
+        for(const colony of this.colonies){
+            if(colony.memory.remoteSources === undefined) continue;
+            for(const remoteSource of colony.memory.remoteSources){
+                remoteSource.active = false;
+            }
+        }
+    }
+}

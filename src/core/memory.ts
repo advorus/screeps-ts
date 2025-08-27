@@ -69,7 +69,7 @@ export function getCreepMemory(creepName:string): CreepMemory {
     return Memory.creeps[creepName] as CreepMemory;
 }
 
-export function getAllTaskMemory(): TaskMemory[] {
+export function getAllTaskMemory(): AnyTaskMemory[] {
     if (!Memory.tasks) {
         Memory.tasks = {};
     }

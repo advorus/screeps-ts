@@ -6,6 +6,7 @@ import { coreStamp, extensionStamp, labStamp, spawnStamp, towerStamp } from "uti
 import { ConstructionManager } from "core/constructionManager";
 import { ColonyVisualizer } from "./colonyVisualiser";
 import {profile} from "Profiler";
+import { resolveCname } from "dns";
 
 // Colony class to manage a single room
 // This class is responsible for managing tasks, spawning creeps, and running the colony logic
@@ -210,10 +211,13 @@ export class Colony {
     }
 
     updateWallRepairThreshold():void{
-        const wallsNeedingRepair = this.room.find(FIND_STRUCTURES, {filter: s=> (s.structureType===STRUCTURE_WALL || s.structureType===STRUCTURE_RAMPART)&&s.hits<this.memory.wallRepairThreshold});
-        if(wallsNeedingRepair.length == 0){
+        const currentThreshold = this.memory.wallRepairThreshold
+        const walls = this.room.find(FIND_STRUCTURES, {filter: s=> s.structureType == STRUCTURE_WALL || s.structureType == STRUCTURE_RAMPART});
+        const wallsNeedingRepair = walls.filter(s=> s.hits<currentThreshold);
+        if(walls.length>0 && wallsNeedingRepair.length == 0){
             if(this.room.controller!==undefined){
-                this.memory.wallRepairThreshold = Math.min(this.memory.wallRepairThreshold + 100000, Math.max(this.room.controller.level-2,1)*300e3);
+                this.memory.wallRepairThreshold = Math.min(currentThreshold + 100000, Math.max(this.room.controller.level-2,1)*300e3);
+                console.log(`Updating wall repair threshold in room ${this.room.name} to ${this.memory.wallRepairThreshold}`);
             }
         }
     }
@@ -258,7 +262,7 @@ export class Colony {
             let existingMinerParts = 0;
             // check if there is a mining task assigned
             const miningTasks = Object.values(Memory.tasks).filter(task =>
-                task.type === 'MINE' && task.targetId === source.id && task.status === 'IN_PROGRESS'
+                task.type === 'MINE' && task.targetId === source.id && task.status === 'IN_PROGRESS' && task.colony == this.room.name
             );
             // for each miningTask check how many mining parts exist on the assigned creep
             for(const miningTask of miningTasks){
@@ -293,6 +297,7 @@ export class Colony {
             // the number of carry parts needed is minerparts*2*roundTripTime
             haulerPartsNeeded += existingMinerParts * 2 * roundTripTime / 50;
         }
+
         this.memory.haulerPartsNeeded = haulerPartsNeeded;
     }
 
@@ -419,8 +424,10 @@ export class Colony {
                     return;
                 }
             }
-            if(role == `miner`){
-                const body = this.minerBodyParts();
+            if(role == `miner` || role==`remote_miner`){
+                let body:BodyPartConstant[] = []
+                if(role==`miner`) body = this.minerBodyParts();
+                if(role==`remote_miner`) body = this.remoteMinerBodyParts();
                 const memory: CreepMemory = {role, colony: this.room.name};
                 const result = spawn.spawnCreep(body,name,{memory});
                 if(result === OK) {
@@ -447,7 +454,7 @@ export class Colony {
                     return;
                 }
             }
-            if(role==`hauler`){
+            if(role==`hauler`||role==`remote_hauler`){
                 // console.log(`trying to spawn a hauler in room ${this.room.name}`);
                 // const body = [CARRY,CARRY,CARRY,CARRY,CARRY,CARRY,CARRY,CARRY,MOVE,MOVE,MOVE,MOVE];
                 // const body = Array.from({ length: this.room.energyAvailable/150}, () => [CARRY,CARRY,MOVE]).flat();
@@ -456,7 +463,7 @@ export class Colony {
                 const memory: CreepMemory = {role, colony: this.room.name};
                 const result = spawn.spawnCreep(body,name,{memory});
                 if(result === OK) {
-                    console.log(`Spawning new hauler in ${this.room.name}`);
+                    console.log(`Spawning new ${role} in ${this.room.name}`);
                     if (spawnIndex < 0) {
                         console.log(`Couldn't find spawn index`);
                     } else {
@@ -480,8 +487,75 @@ export class Colony {
                     return;
                 }
             }
+            if(role == `duo_attacker`){
+                const body = this.duoAttackerBodyParts();
+                const memory: CreepMemory = {role, colony: this.room.name};
+                const result = spawn.spawnCreep(body,name,{memory});
+                if(result === OK) {
+                    console.log(`Spawning new duo_attacker in ${this.room.name}`);
+                    if (spawnIndex < 0) {
+                        console.log(`Couldn't find spawn index`);
+                    } else {
+                        this.spawnsAvailableForSpawning.splice(spawnIndex, 1);
+                    }
+                    return;
+                }
+            }
+            if(role == `duo_healer`){
+                const body = this.duoHealerBodyParts();
+                const memory: CreepMemory = {role, colony: this.room.name};
+                const result = spawn.spawnCreep(body,name,{memory});
+                if(result === OK) {
+                    console.log(`Spawning new duo_healer in ${this.room.name}`);
+                    if (spawnIndex < 0) {
+                        console.log(`Couldn't find spawn index`);
+                    } else {
+                        this.spawnsAvailableForSpawning.splice(spawnIndex, 1);
+                    }
+                    return;
+                }
+            }
         }
     }
+
+    duoAttackerBodyParts(): BodyPartConstant[] {
+        switch(this.room.controller?.level){
+            case 5:
+                return [TOUGH,TOUGH,
+                    ATTACK,ATTACK,ATTACK,ATTACK,ATTACK,
+                    MOVE,MOVE,MOVE,MOVE,MOVE];
+            case 6:
+                return [
+                    TOUGH, TOUGH, TOUGH, TOUGH,
+                    ATTACK, ATTACK, ATTACK, ATTACK, ATTACK, ATTACK, ATTACK, ATTACK,
+                    MOVE, MOVE, MOVE, MOVE, MOVE, MOVE, MOVE, MOVE
+                ];
+        }
+        return [TOUGH,ATTACK,MOVE];
+
+    }
+
+    duoHealerBodyParts(): BodyPartConstant[] {
+        switch(this.room.controller?.level){
+            case 5:
+                // RCL 5: 1300 energy
+                // 3 HEAL, 5 MOVE
+                return [
+                    HEAL, HEAL, HEAL,
+                    MOVE, MOVE, MOVE, MOVE, MOVE
+                ];
+            case 6:
+                // RCL 6: 2000 energy
+                // 5 HEAL, 8 MOVE
+                return [
+                    HEAL, HEAL, HEAL, HEAL, HEAL,
+                    MOVE, MOVE, MOVE, MOVE, MOVE, MOVE, MOVE, MOVE
+                ];
+        }
+        // Default: minimal healer
+        return [HEAL, MOVE];
+    }
+
     haulerBodyParts(): BodyPartConstant[] {
         const multiples = Math.min(Math.floor(this.room.energyAvailable/150),7);
         let body: BodyPartConstant[] = [];
@@ -513,6 +587,10 @@ export class Colony {
     minerBodyParts(): BodyPartConstant[] {
         const num_work_parts = Math.max(Math.min(Math.floor((this.room.energyAvailable-50) / 100),5), 1);
         return Array(num_work_parts).fill(WORK).concat(MOVE);
+    }
+
+    remoteMinerBodyParts(): BodyPartConstant[] {
+        return [WORK,WORK,WORK,MOVE,MOVE,MOVE];
     }
 
     placeContainers(): void {
@@ -621,6 +699,16 @@ export class Colony {
         }
     }
 
+    getDuoAttackerNeed(): boolean {
+        const colonyDuoTasks = getAllTaskMemory().filter(t => (t.type === 'DUO_ATTACK'||t.type==`DUO_DEFEND`) && t.colony === this.room.name && t.status!==`DONE`) as DuoTaskMemory[];
+        return colonyDuoTasks.some(t => !t.attacker);
+    }
+
+    getDuoHealerNeed(): boolean {
+        const colonyDuoTasks = getAllTaskMemory().filter(t => (t.type === 'DUO_ATTACK'||t.type==`DUO_DEFEND`) && t.colony === this.room.name && t.status!==`DONE`) as DuoTaskMemory[];
+        return colonyDuoTasks.some(t => !t.healer);
+    }
+
     getMinerNeed(): boolean {
         /**
          * Checks if the colony wants to spawn a miner, based on the number of source containers and existing miners
@@ -628,7 +716,14 @@ export class Colony {
          */
         // console.log(`Checking ${this.room.name} for miner need: ${this.sourceContainers.length} source containers and ${this.room.find(FIND_MY_CREEPS, { filter: (c) => c.memory.role === 'miner' }).length} existing miners`);
         const miners = this.creeps.filter(c=>c.memory.role === 'miner');
+
         return miners.length < this.sourceContainers.length;
+    }
+
+    getRemoteMinerNeed(): boolean{
+        const remoteMiningTasks = getAllTaskMemory().filter(t=>t.type === `REMOTE_MINING` && t.status !== `DONE` && t.colony === this.room.name);
+        const remoteMiners = this.creeps.filter(c=>c.memory.role === 'remote_miner');
+        return remoteMiners.length < remoteMiningTasks.length;
     }
 
     getPorterNeed(): boolean {
@@ -642,6 +737,14 @@ export class Colony {
         else{
             return false;
         }
+    }
+
+    getRemoteHaulerNeed(): boolean {
+        // need to improve this to check the number of hauler parts needed
+        // for now, just check if there are less than 3 remote haulers per remote mining task
+        const remoteMiningTasks = getAllTaskMemory().filter(t=>t.type === `REMOTE_MINING` && t.status !== `DONE` && t.colony === this.room.name);
+        const remoteHaulers = this.creeps.filter(c=>c.memory.role === 'remote_hauler');
+        return remoteHaulers.length < remoteMiningTasks.length;
     }
 
     getHaulerNeed(): boolean {
@@ -667,9 +770,10 @@ export class Colony {
         const scouts = this.creeps.filter(c=>c.memory.role === `scout`);
         // console.log(`Colony ${this.room.name} has ${scouts.length} scouts`);
         const scoutTasks = getAllTaskMemory().filter(t=>t.type === `SCOUT` && t.colony === this.room.name);
+        const visibilityTasks = scoutTasks.filter(t=>t.role==`visibility`);
         // console.log(`Colony ${this.room.name} has ${scoutTasks.length} scout tasks`);
         // console.log(`Colony ${this.room.name} needs a scout: ${scouts.length < 1 && scoutTasks.length > 0}`);
-        return scouts.length < 1 && scoutTasks.length > 0;
+        return scouts.length < 1 + visibilityTasks.length && scoutTasks.length > 0;
 
     }
 
@@ -706,7 +810,7 @@ export class Colony {
         const taskId = getCreepMemory(creep.name).taskId;
         if (!taskId) return;
 
-        const task = getTaskMemory(taskId);
+        let task = getTaskMemory(taskId);
         if (!task || task.status !== 'IN_PROGRESS') return;
 
         if (task.targetId === undefined) {
@@ -717,7 +821,7 @@ export class Colony {
         }
 
         const target = Game.getObjectById(task.targetId);
-        if (target === undefined) {
+        if ((target === undefined || target === null) && task.type !== `DUO_ATTACK`) {
             console.log(`Task ${taskId} of type ${task.type} has invalid targetId`);
             task.status = `DONE`;
             delete creep.memory.taskId;
@@ -1010,6 +1114,80 @@ export class Colony {
                     creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
                 }
                 break;
+            case `REMOTE_MINING`:
+                if(!creep.pos.isNearTo(target.pos)) {
+                    creep.safeMoveTo(target.pos);
+                }else{
+                    creep.harvest(target as Source);
+                }
+                break;
+            case `REMOTE_PICKUP`:
+                if (creep.store.getFreeCapacity() === 0) {
+                    delete creep.memory.taskId;
+                    task.status = `DONE`;
+                    break;
+                }
+                if(!creep.pos.isNearTo(target.pos)) {
+                    creep.safeMoveTo(target.pos);
+                }else{
+                    creep.pickup(target as Resource);
+                }
+                break;
+            case `DUO_ATTACK`:
+                const duoTask = task as DuoTaskMemory
+                // task = task as DuoTaskMemory; // cast task to DuoTaskMemory to access healer and attacker properties
+                // depends on whether the creep is the attacker or the healer
+                if(!(`healer` in duoTask)) break;
+                if(!(`attacker` in duoTask)) break;
+                if(creep.memory.role === `attacker`) {
+                    const healerId = duoTask.healer;
+                    if(typeof healerId !== `string`) break;
+                    const healer = Game.creeps[healerId]
+                    if(!healer) {
+                        break;
+                    }
+                    // if we are not in the target room then move into it
+                    if(creep.room.name !== task.targetRoom || !creep.pos.isInsideRoom()) {
+                        creep.safeMoveTo(new RoomPosition(25, 25, task.targetRoom??creep.room.name), {visualizePathStyle: {stroke: '#ff0000'}});
+                        break;
+                    }
+                    if(!target) {
+                        const bestTarget = creep.pos.findClosestByRange(FIND_HOSTILE_STRUCTURES);
+                        if(bestTarget == null){
+                            const creepTarget = creep.pos.findClosestByRange(FIND_HOSTILE_CREEPS);
+                            task.targetId = creepTarget?.id;
+                        } else task.targetId = bestTarget?.id;
+                    }
+                    if(!task.targetId) break;
+                    let attackTarget = Game.getObjectById(task.targetId);
+                    // if we are near the target then attack it
+                    if(creep.attack(attackTarget as Creep | Structure) === ERR_NOT_IN_RANGE) {
+                        creep.safeMoveTo(attackTarget.pos, {visualizePathStyle: {stroke: '#ff0000'}});
+                    }
+                    // if the target is dead then the task is done
+                    if((target as Creep | Structure).hits === 0 || (target as Creep | Structure).hits === undefined) {
+                        delete creep.memory.taskId;
+                        task.status = `DONE`;
+                    }
+                }else if(creep.memory.role === `healer`) {
+                    // if the creep isn't near the attacker then move towards it
+                    const duoTask = task as DuoTaskMemory;
+                    if(!duoTask.attacker) break;
+                    const attacker = Game.creeps[duoTask.attacker];
+                    if(!attacker) break;
+                    // if the healer isn't near the attacker then move towards it
+                    if(creep.pos.getRangeTo(attacker) > 1) {
+                        creep.safeMoveTo(attacker.pos, {visualizePathStyle: {stroke: '#00ff00'}});
+                    }
+                    // heal the attacker
+                    if(creep.pos.getRangeTo(attacker) === 1) {
+                        creep.heal(attacker);
+                        break;
+                    }
+                    if(creep.hits < creep.hitsMax) {
+                        creep.heal(creep);
+                    }
+                }
         }
         // console.log(`Status of task ${task.id}: ${task.status}`);
 

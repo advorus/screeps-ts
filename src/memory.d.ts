@@ -9,7 +9,7 @@ declare global {
     interface Memory {
         empire: EmpireMemory;
         colonies: {[roomName:string]:ColonyMemory};
-        tasks: {[id:string]:TaskMemory};
+        tasks: {[id:string]:AnyTaskMemory};
         hostileRooms: {roomName:string, lastSeen:number}[];
         scoutedRooms: {[roomName:string]:ScoutedRoomMemory};
     }
@@ -25,6 +25,7 @@ declare global {
         tickPathFound?: number;
         path?: RoomPosition[];
         duoPartner?: string; //this is the name of the creep which is part of the duo pair
+        duoId?: string;
     }
 
     interface ColonyMemory {
@@ -49,7 +50,7 @@ declare global {
         wallRepairThreshold: number;
         repairTargets?: {id: string, active: boolean }[];
         haulerPartsNeeded?: number;
-        remoteSources?: {id:string, active: boolean, distance: number, pos_x:number, pos_y:number, roomName: string}[];
+        remoteSources?: {id:string, active: boolean, distance: number, room: string}[];
     }
 
     interface EmpireMemory {
@@ -83,7 +84,7 @@ declare global {
 
     interface TaskMemory {
         id?: string;
-        type?: 'HARVEST' | "HAUL" | "BUILD" | "UPGRADE" | "MINE" | "SCOUT" | "PICKUP" | "FILL" | "REPAIR" | "CLAIM" | "WALLREPAIR" | "DISMANTLE";
+        type?: 'HARVEST' | "HAUL" | "BUILD" | "UPGRADE" | "MINE" | "SCOUT" | "PICKUP" | "FILL" | "REPAIR" | "CLAIM" | "WALLREPAIR" | "DISMANTLE" | "REMOTE_MINING" | "REMOTE_PICKUP"| `DUO_ATTACK` | `DUO_DEFEND`;
         targetId?: Id<any>;
         assignedCreep?: string;
         status?: "PENDING" | "IN_PROGRESS" | "DONE";
@@ -93,14 +94,17 @@ declare global {
         targetRoom?: string;
     }
 
-    // interface GroupTaskMemory extends TaskMemory{
-    //     type: `DUO_ATTACK` | `DUO_DEFEND` | `DUO_PESTER`;
-    //     members: string[]; // array of creep names assigned
-    //     targetRoom: string;
-    //     targetPos?: RoomPosition;
-    //     // objective: string;
-    //     status: "PENDING" | "IN_PROGRESS" | `DONE`;
-    // }
+    interface DuoTaskMemory extends TaskMemory{
+        type: 'DUO_ATTACK' | 'DUO_DEFEND';
+        attacker?: string; // name of the attacker creep
+        healer?: string; // name of the healer creep
+        targetRoom: string;
+        targetPos?: RoomPosition;
+        objective: string;
+        status: "PENDING" | "IN_PROGRESS" | `DONE`;
+    }
+
+    type AnyTaskMemory = TaskMemory | DuoTaskMemory;
 
     interface Creep {
         safeMoveTo(target: RoomPosition | RoomObject, opts?: MoveToOpts): ScreepsReturnCode;
@@ -116,7 +120,7 @@ declare global {
         colonies: any[];
         memory: EmpireMemory;
         dismantleTargets: string[];
-        getNearestColonyName(roomName: string): string | null;
+        getNearestColonyName(roomName: string): {name:string, distance: number} | null;
     }
 
     interface ColonyLike {

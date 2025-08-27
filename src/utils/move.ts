@@ -26,13 +26,16 @@ Creep.prototype.safeMoveTo = function(target: RoomPosition | RoomObject, opts?: 
     if(opts==undefined) opts = {};
     opts.reusePath = 5;
     opts.costCallback = (roomName,costMatrix) => {
-        if(checkIfHostileRoom(roomName)&&roomName!==targetPos.roomName){
-            for(let i=0;i<50;i++){
-                for(let j=0;j<50;j++){
-                    costMatrix.set(i,j,999);
+        if(roomName!==targetPos.roomName){
+            if(checkIfHostileRoom(roomName)){
+                for(let i=0;i<50;i++){
+                    for(let j=0;j<50;j++){
+                        costMatrix.set(i,j,999);
+                    }
                 }
             }
         }
+
     }
 
     const pos = target instanceof RoomObject ? target.pos : target;
@@ -63,6 +66,7 @@ Creep.prototype.safeMoveTo = function(target: RoomPosition | RoomObject, opts?: 
             // console.log(taskMem.type);
             if(taskMem.type == `SCOUT`){
                 // if the task is a scout task then just move normally
+                // console.log(`${this.name} is scouting to ${targetRoom}`);
                 return this.moveTo(pos, opts);
             }
         }
