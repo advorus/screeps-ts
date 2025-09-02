@@ -8,7 +8,7 @@ import {profile} from "Profiler";
 
 @profile
 export class TaskManager {
-    static createTask(type: TaskMemory['type'], target: AnyStructure | Source | ConstructionSite | Resource, colony: string, priority:number = 0, role?:string, targetRoom?:string): string {
+    static createTask(type: TaskMemory['type'], target: Mineral | AnyStructure | Source | ConstructionSite | Resource, colony: string, priority:number = 0, role?:string, targetRoom?:string): string {
         if(!Memory.tasks) {
             Memory.tasks = {};
         }
@@ -18,12 +18,12 @@ export class TaskManager {
         return id;
     }
 
-    static createDuoTask(type: DuoTaskMemory[`type`], targetRoom: string, colony: string, priority:number = 0, objective:string): string {
+    static createDuoTask(type: DuoTaskMemory[`type`], targetRoom: string, colony: string, priority:number = 0, objective:string,targetId:string): string {
         if(!Memory.tasks) {
             Memory.tasks = {};
         }
         const id = `${type}_${Game.time}_${Math.random()}`;
-        Memory.tasks[id] = {id, type, targetRoom, colony, priority, objective, status:`PENDING`, healer: undefined, attacker: undefined} as DuoTaskMemory;
+        Memory.tasks[id] = {id, type, targetRoom, colony, priority, objective, status:`PENDING`, healer: undefined, attacker: undefined,targetId:targetId} as DuoTaskMemory;
         return id;
     }
 
@@ -165,34 +165,49 @@ export class TaskManager {
             return;
         }
 
+        const availableDuoTasks = getAllTaskMemory().filter(task =>
+            task.status === `PENDING` &&
+            task.colony === getCreepMemory(creep.name).colony &&
+            task.type === `DUO_ATTACK`
+        ).sort((a, b) => (b.priority || 0) - (a.priority || 0)); // Sort by priority
+
         // if(creep.memory.role == `scout`) console.log(`Scout creep ${creep.name} is checking for tasks`);
+
+        for(const duoTask of availableDuoTasks as DuoTaskMemory[]){
+            //duo assignment logic
+            console.log(`Checking ${duoTask.id} with target ${duoTask.targetId}`);
+            if(creep.memory.role == `duo_attacker`){
+                console.log(`Checking if ${creep.name} can be assigned ${duoTask.id}`)
+                if(duoTask.attacker !== undefined) continue;
+                console.log(`Assigning duo attacker ${creep.name} to task ${duoTask.id}`);
+                //then this is a duo task which can be assigned
+                duoTask.attacker = creep.name as string;
+                creep.memory.taskId = duoTask.id;
+
+                // if there is healer in the task then set its status to in progress
+                if(duoTask.healer !== undefined){
+                    duoTask.status = `IN_PROGRESS`;
+                }
+            }
+            if(creep.memory.role == `duo_healer`){
+                if(duoTask.healer !== undefined) continue;
+                console.log(`Assigning duo healer ${creep.name} to task ${duoTask.id}`);
+                duoTask.healer = creep.name as string;
+                creep.memory.taskId = duoTask.id;
+
+                if(duoTask.attacker !== undefined){
+                    duoTask.status = `IN_PROGRESS`;
+                    console.log(`Duo task ${duoTask.id} is now in progress with targetId ${duoTask.targetId}`);
+                }
+            };
+        }
 
         for(const task of availableTasks) {
             if(task.id!==undefined && task.targetId!==undefined) {
-                //duo assignment logic
-                if(creep.memory.role == `duo_attacker`){
-                    if(`objective` in task){
-                        //then this is a duo task which can be assigned
-                        task.attacker = creep.name as string;
-                        creep.memory.taskId = task.id;
-
-                        // if there is healer in the task then set its status to in progress
-                        if(`healer` in task){
-                            task.status = `IN_PROGRESS`;
-                        }
-                    } else continue;
-                }
-                if(creep.memory.role == `duo_healer`){
-                    if(`objective` in task){
-                        task.healer = creep.name as string;
-                        creep.memory.taskId = task.id;
-
-                        if(`attacker` in task){
-                            task.status = `IN_PROGRESS`;
-                        }
-                    } else continue;
-                };
-                if("objective" in task) continue;
+                const target = Game.getObjectById(task.targetId);
+                if(creep.memory.role == `duo_attacker`) continue;
+                if(creep.memory.role == `duo_healer`) continue
+                if(Object.keys(task).includes(`objective`)) continue;
 
                 // if(task.type==`SCOUT`) console.log(`Checking if task ${task.id} can be assigned to creep ${creep.name}`);
                 // Check if the creep can perform the task
@@ -215,7 +230,10 @@ export class TaskManager {
                 if(creep.memory.role === `hauler` && task.type !== `HAUL` && task.type !== `FILL` && task.type !== `PICKUP`) {
                     continue;
                 }
-                if( task.type === 'HAUL' && creep.store.getUsedCapacity(RESOURCE_ENERGY) === 0) {
+                if( task.type === 'HAUL' && target.structureType!==STRUCTURE_STORAGE && target.structureType!==STRUCTURE_LAB && target.structureType!==STRUCTURE_TERMINAL && creep.store.getUsedCapacity(RESOURCE_ENERGY) === 0) {
+                    continue;
+                }
+                if(task.type === `HAUL` && creep.store.getUsedCapacity() == 0){
                     continue;
                 }
                 if(task.type === 'BUILD' && creep.store.getUsedCapacity(RESOURCE_ENERGY) === 0) {
@@ -309,6 +327,8 @@ export class TaskManager {
                     }
                     const assignedCreeps = Object.values(Game.creeps).filter(c => {
                         const memory = getCreepMemory(c.name);
+                        if(!memory.taskId) return false;
+                        if(!getTaskMemory(memory.taskId)) return false;
                         return memory.taskId && getTaskMemory(memory.taskId).targetId === task.targetId;
                     });
                     //sum the amount of energy capacity of these creeps
@@ -404,6 +424,7 @@ export class TaskManager {
 
     static createColonyTasks(colony: ColonyLike) {
         this.createSourceTasks(colony);
+        this.createMineralTasks(colony);
         if(colony.room.controller) {
             this.createUpgradeTasks(colony);
         }
@@ -416,6 +437,20 @@ export class TaskManager {
         this.createWallRepairTasks(colony);
         this.createRemoteMiningTasks(colony);
         this.createRemoteHaulingTasks(colony);
+    }
+
+    static createMineralTasks(colony: ColonyLike){
+        // find any active minerals
+        if (!colony.memory.minerals) return;
+        for(const mineralId of colony.memory.minerals){
+            const mineral = Game.getObjectById(mineralId) as Mineral | null;
+            if(!mineral) continue;
+            if(mineral.mineralAmount <= 0) continue;
+            if(colony.room.find(FIND_STRUCTURES).filter(s=>s.structureType===STRUCTURE_EXTRACTOR).length===0) continue;
+            if(this.checkIfExistingTask(`MINE`, mineral, colony.room.name)) continue;
+            this.createTask(`MINE`, mineral, colony.room.name, 0);
+        }
+        return;
     }
 
     static createRemoteHaulingTasks(colony: ColonyLike) {
@@ -556,7 +591,7 @@ export class TaskManager {
         }
     }
 
-    static checkIfExistingTask(type: TaskMemory['type'], target: AnyStructure | Source | Resource, colony: string): boolean {
+    static checkIfExistingTask(type: TaskMemory['type'], target: Mineral | AnyStructure | Source | Resource, colony: string): boolean {
     /**
      * returns true if there is a matching existing task
      */

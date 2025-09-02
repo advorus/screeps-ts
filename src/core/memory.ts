@@ -49,7 +49,7 @@ export function removeHostileRoom(roomName: string): void {
     }
 }
 
-export function getTaskMemory(taskId:string): TaskMemory {
+export function getTaskMemory(taskId:string): AnyTaskMemory {
     if(!Memory.tasks){
         Memory.tasks = {};
     }
@@ -92,9 +92,18 @@ export function updateCachedRoomData(): void {
     }
 }
 
+export function getCostMatrixForRoom(roomName: string): CostMatrix | undefined {
+    const scoutedRoom = Memory.scoutedRooms[roomName];
+    if (scoutedRoom) {
+        return PathFinder.CostMatrix.deserialize(scoutedRoom.rCostMatrix);
+    }
+    return undefined;
+}
+
 export function updateCachedRoomDataForRoom(roomName:string): void{
     if(!(roomName in Game.rooms)){
         console.error(`Room ${roomName} is not visible, so cannot be updated`);
+        return;
     }
     let controllerObj = undefined;
     let gameController = Game.rooms[roomName].controller;
@@ -114,6 +123,16 @@ export function updateCachedRoomDataForRoom(roomName:string): void{
         };
     }
 
+    let cMatrix = new PathFinder.CostMatrix();
+    // create the costMatrix for the given room
+    Game.rooms[roomName].find(FIND_STRUCTURES).forEach(structure => {
+        if (structure.structureType === STRUCTURE_ROAD) {
+            cMatrix.set(structure.pos.x, structure.pos.y, 1);
+        } else if (structure.structureType !== STRUCTURE_CONTAINER && (structure.structureType !== STRUCTURE_RAMPART || !structure.my)) {
+            cMatrix.set(structure.pos.x, structure.pos.y, 255);
+        }
+    });
+
     Memory.scoutedRooms[roomName] = {
         lastScouted: Game.time,
         sources: Game.rooms[roomName].find(FIND_SOURCES).map(source => source.id),
@@ -122,7 +141,8 @@ export function updateCachedRoomDataForRoom(roomName:string): void{
         hostiles: Game.rooms[roomName].find(FIND_HOSTILE_CREEPS).length,
         hostileStructures: Game.rooms[roomName].find(FIND_HOSTILE_STRUCTURES).map(structure => structure.id),
         terrainScore: 0,
-        exits: Game.rooms[roomName].findExits()
+        exits: Game.rooms[roomName].findExits(),
+        rCostMatrix: cMatrix.serialize()
     }
 
     // determine also if the room is hostile/should be added to hostile rooms

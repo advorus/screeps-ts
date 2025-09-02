@@ -105,6 +105,14 @@ export const towerStamp: Stamp = [
     {dx:0, dy:2, structureType: STRUCTURE_ROAD}
 ]
 
+export const containerStamp: Stamp = [
+    {dx:0, dy:0, structureType: STRUCTURE_CONTAINER}
+]
+
+export const extractorStamp: Stamp = [
+    {dx:0, dy:0, structureType: STRUCTURE_EXTRACTOR}
+]
+
 export const labStamp: Stamp = [
     {dx:-2, dy: 0, structureType: STRUCTURE_ROAD},
     {dx:-2, dy: 1, structureType: STRUCTURE_ROAD},

@@ -9,8 +9,17 @@ declare global {
         findNearestValidStampLocation(stamp: {dx:number, dy:number, structureType: BuildableStructureConstant}[]): RoomPosition | null;
         canPlaceStamp(stamp: Stamp, canOverlayExcRoads?: boolean) : boolean;
         isInsideRoom(): boolean;
+        isNearEdge(): boolean;
 
     }
+}
+
+RoomPosition.prototype.isNearEdge = function(): boolean {
+    /**
+     * true if on or within 1 tile of exit, otherwise false
+     */
+    if(this.x <= 1 || this.x >= 48 || this.y <= 0 || this.y >= 48) return true;
+    return false;
 }
 
 RoomPosition.prototype.getFreeTiles = function(): RoomPosition[] {

@@ -19,11 +19,11 @@ declare global {
         taskId?: string;
         role?: string;
         working?: boolean;
-        pathTargetX?: number;
-        pathTargetY?: number;
-        pathTargetRoom?: string;
+        betterPathTargetX?: number;
+        betterPathTargetY?: number;
+        betterPathTargetRoom?: string;
         tickPathFound?: number;
-        path?: RoomPosition[];
+        betterPath?: RoomPosition[];
         duoPartner?: string; //this is the name of the creep which is part of the duo pair
         duoId?: string;
     }
@@ -51,6 +51,8 @@ declare global {
         repairTargets?: {id: string, active: boolean }[];
         haulerPartsNeeded?: number;
         remoteSources?: {id:string, active: boolean, distance: number, room: string}[];
+        minerals?: Id<Mineral>[];
+        terminalId?: Id<StructureTerminal>;
     }
 
     interface EmpireMemory {
@@ -79,7 +81,8 @@ declare global {
         hostiles: number,
         hostileStructures: string[];
         terrainScore: number,
-        exits: string[]
+        exits: string[],
+        rCostMatrix: number[];
     }
 
     interface TaskMemory {

@@ -2,7 +2,7 @@ import {getAllTaskMemory, getColonyMemory,getCreepMemory, getScoutedRoomMemory, 
 
 import "utils/roomPosition";
 import "utils/move";
-import { coreStamp, extensionStamp, labStamp, spawnStamp, towerStamp } from "utils/stamps";
+import { containerStamp, coreStamp, extensionStamp, extractorStamp, labStamp, spawnStamp, towerStamp } from "utils/stamps";
 import { ConstructionManager } from "core/constructionManager";
 import { ColonyVisualizer } from "./colonyVisualiser";
 import {profile} from "Profiler";
@@ -27,6 +27,7 @@ export class Colony {
     upgradeContainers: StructureContainer[] = [];
     storage?: StructureStorage;
     spawnsAvailableForSpawning: StructureSpawn[] = [];
+    minerals: Mineral[] = [];
 
     constructor(room: Room) {
         this.room = room;
@@ -51,7 +52,7 @@ export class Colony {
         // }
 
         // cache sources, spawns, creeps for this room
-        this.memory.wallRepairThreshold = 100000;
+        this.memory.wallRepairThreshold ??= 100000;
 
         this.memory.lastSeen = Game.time;
         if(!this.memory.sourceIds) {
@@ -71,6 +72,7 @@ export class Colony {
         this.memory.repairTargets ??= [];
 
 
+
         this.updateTowerIds();
 
         this.memory.extensionIds ??= [];
@@ -82,6 +84,7 @@ export class Colony {
         }).map(s => s.id)[0];
         this.storage = Game.getObjectById(this.memory.storageId) as StructureStorage | undefined;
 
+        this.memory.minerals ??= this.room.find(FIND_MINERALS).map(m => m.id);
         this.memory.fillerContainerIds ??= [];
         this.memory.upgradeContainerIds ??= [];
         this.memory.lastStampRCL ??= 0;
@@ -106,6 +109,7 @@ export class Colony {
         this.fillerContainers = this.memory.fillerContainerIds.map(id=>Game.getObjectById(id)).filter((s):s is StructureContainer=> s !== null);
         this.upgradeContainers = this.memory.upgradeContainerIds.map(id=>Game.getObjectById(id)).filter((s):s is StructureContainer=> s !== null);
         this.storage = Game.getObjectById(this.memory.storageId) as StructureStorage | undefined;
+        // this.minerals = this.room.find(FIND_MINERALS);
 
         // console.log(`got here for room ${this.room.name}`);
 
@@ -163,6 +167,49 @@ export class Colony {
                         console.log("Placed lab stamp for colony " + this.room.name);
                     }
                 }
+
+                if(this.room.controller?.level?this.room.controller.level>=6:false){
+                    // delete the upgrader container from the map and planned construction sites
+                    const upgraderContainer = this.memory.upgradeContainerIds.map(id=>Game.getObjectById(id))[0];
+                    if(upgraderContainer){
+                        upgraderContainer.destroy();
+                        this.memory.plannedConstructionSites = this.memory.plannedConstructionSites.filter(site=>!(site.pos.x === upgraderContainer.pos.x && site.pos.y === upgraderContainer.pos.y && site.pos.roomName === upgraderContainer.pos.roomName && site.structureType === STRUCTURE_CONTAINER));
+                        this.memory.upgradeContainerIds = [];
+                        console.log("Removed upgrader container for colony " + this.room.name);
+                    }
+                }
+
+                if(this.getTotalStructuresIncludingPlanned(STRUCTURE_EXTRACTOR)<1){
+                    const extractorLocation = this.room.find(FIND_MINERALS)[0]?.pos;
+                    if(extractorLocation){
+                        this.placeStampIntoMemory(extractorLocation, extractorStamp);
+                        console.log("Placed extractor stamp for colony " + this.room.name);
+                    }
+                }
+
+                if(this.getTotalStructuresIncludingPlanned(STRUCTURE_EXTRACTOR)>0){
+                    console.log("Extractor already placed for colony " + this.room.name);
+                    // place a container next to the extractor
+                    const extractorLocation = this.room.find(FIND_MINERALS)[0]?.pos;
+                    // check if there is a container next to the extractor
+                    const containers = this.room.find(FIND_STRUCTURES,{filter: s=> s.structureType === STRUCTURE_CONTAINER}) as StructureContainer[];
+                    let containerNearExtractor = false;
+                    for(const container of containers){
+                        if(container.pos.isNearTo(extractorLocation)){
+                            containerNearExtractor = true;
+                            console.log(`Found container next to extractor at ${container.pos}`);
+                            break;
+                        }
+                    }
+
+                    const containerPos = extractorLocation.getFreeTiles()[0];
+                    if(containerPos && !containerNearExtractor){
+                        this.placeStampIntoMemory(containerPos, containerStamp);
+                        console.log("Placed container stamp for extractor for colony " + this.room.name);
+                    }
+                }
+
+
             }
         }
 
@@ -175,6 +222,11 @@ export class Colony {
             this.updateHaulerPartsNeeded();
             this.updateRepairTargets();
             this.updateWallRepairThreshold();
+
+            const terminals = this.room.find(FIND_STRUCTURES).filter(s=>s.structureType===STRUCTURE_TERMINAL) as StructureTerminal[] | null;
+            if(terminals){
+                this.memory.terminalId ??= terminals[0]?.id;
+            }
         }
 
         // Initialise visualiser
@@ -473,7 +525,7 @@ export class Colony {
                 }
             }
             if(role==`scout`){
-                const body = [TOUGH,TOUGH,TOUGH,MOVE,MOVE];
+                const body = [MOVE];
                 // console.log(body);
                 const memory: CreepMemory = {role, colony: this.room.name};
                 const result = spawn.spawnCreep(body,name,{memory});
@@ -628,7 +680,7 @@ export class Colony {
             }
         }
 
-        this.placeControllerContainer();
+        // this.placeControllerContainer();
     }
 
     getControllerContainer(): StructureContainer | null {
@@ -701,12 +753,14 @@ export class Colony {
 
     getDuoAttackerNeed(): boolean {
         const colonyDuoTasks = getAllTaskMemory().filter(t => (t.type === 'DUO_ATTACK'||t.type==`DUO_DEFEND`) && t.colony === this.room.name && t.status!==`DONE`) as DuoTaskMemory[];
-        return colonyDuoTasks.some(t => !t.attacker);
+        const duoAttackers = this.creeps.filter(c=>c.memory.role === `duo_attacker`);
+        return duoAttackers.length < colonyDuoTasks.length;
     }
 
     getDuoHealerNeed(): boolean {
         const colonyDuoTasks = getAllTaskMemory().filter(t => (t.type === 'DUO_ATTACK'||t.type==`DUO_DEFEND`) && t.colony === this.room.name && t.status!==`DONE`) as DuoTaskMemory[];
-        return colonyDuoTasks.some(t => !t.healer);
+        const colonyDuoHealers = this.creeps.filter(c=>c.memory.role === `duo_healer`);
+        return colonyDuoHealers.length < colonyDuoTasks.length;
     }
 
     getMinerNeed(): boolean {
@@ -1137,57 +1191,89 @@ export class Colony {
                 const duoTask = task as DuoTaskMemory
                 // task = task as DuoTaskMemory; // cast task to DuoTaskMemory to access healer and attacker properties
                 // depends on whether the creep is the attacker or the healer
-                if(!(`healer` in duoTask)) break;
-                if(!(`attacker` in duoTask)) break;
-                if(creep.memory.role === `attacker`) {
+                if(!Object.keys(duoTask).includes(`healer`)) break;
+                if(!Object.keys(duoTask).includes(`attacker`)) break;
+                if(creep.memory.role === `duo_attacker`) {
                     const healerId = duoTask.healer;
                     if(typeof healerId !== `string`) break;
                     const healer = Game.creeps[healerId]
                     if(!healer) {
                         break;
                     }
+                    // if the creep is within 2 of an exit tile and not near the healer, then stop
+                    if(!creep.pos.isNearTo(healer.pos) && !creep.pos.isNearEdge()) break;
+
                     // if we are not in the target room then move into it
                     if(creep.room.name !== task.targetRoom || !creep.pos.isInsideRoom()) {
                         creep.safeMoveTo(new RoomPosition(25, 25, task.targetRoom??creep.room.name), {visualizePathStyle: {stroke: '#ff0000'}});
                         break;
                     }
-                    if(!target) {
-                        const bestTarget = creep.pos.findClosestByRange(FIND_HOSTILE_STRUCTURES);
+                    if(task.targetId === this.spawns[0].id) {
+                        // console.log(`resetting targetId`)
+                        const bestTarget = creep.pos.findClosestByRange(FIND_HOSTILE_CREEPS);
                         if(bestTarget == null){
-                            const creepTarget = creep.pos.findClosestByRange(FIND_HOSTILE_CREEPS);
+                            const creepTarget = creep.pos.findClosestByRange(FIND_HOSTILE_STRUCTURES);
                             task.targetId = creepTarget?.id;
                         } else task.targetId = bestTarget?.id;
                     }
-                    if(!task.targetId) break;
+                    if(task.targetId===this.spawns[0].id) break;
+                    if(task.targetId === undefined) break;
                     let attackTarget = Game.getObjectById(task.targetId);
                     // if we are near the target then attack it
                     if(creep.attack(attackTarget as Creep | Structure) === ERR_NOT_IN_RANGE) {
                         creep.safeMoveTo(attackTarget.pos, {visualizePathStyle: {stroke: '#ff0000'}});
                     }
                     // if the target is dead then the task is done
-                    if((target as Creep | Structure).hits === 0 || (target as Creep | Structure).hits === undefined) {
-                        delete creep.memory.taskId;
-                        task.status = `DONE`;
+                    if(target === null){
+                        const bestTarget = creep.pos.findClosestByRange(FIND_HOSTILE_CREEPS);
+                        if(bestTarget == null){
+                            const creepTarget = creep.pos.findClosestByRange(FIND_HOSTILE_STRUCTURES);
+                            if(creepTarget == null){
+                                // if there are no hostile creeps then the task is done
+                                delete creep.memory.taskId;
+                                task.status = `DONE`;
+                                break;
+                            }
+                            task.targetId = creepTarget?.id;
+                        } else task.targetId = bestTarget?.id;
+                        break;
                     }
-                }else if(creep.memory.role === `healer`) {
+                    if((target as Creep | Structure).hits === 0 || (target as Creep | Structure).hits === undefined) {
+                        const bestTarget = creep.pos.findClosestByRange(FIND_HOSTILE_CREEPS);
+                        if(bestTarget == null){
+                            const creepTarget = creep.pos.findClosestByRange(FIND_HOSTILE_STRUCTURES);
+                            if(creepTarget == null){
+                                // if there are no hostile creeps then the task is done
+                                delete creep.memory.taskId;
+                                task.status = `DONE`;
+                                break;
+                            }
+                            task.targetId = creepTarget?.id;
+                        } else task.targetId = bestTarget?.id;
+                    }
+                }else if(creep.memory.role === `duo_healer`) {
                     // if the creep isn't near the attacker then move towards it
                     const duoTask = task as DuoTaskMemory;
                     if(!duoTask.attacker) break;
                     const attacker = Game.creeps[duoTask.attacker];
                     if(!attacker) break;
                     // if the healer isn't near the attacker then move towards it
-                    if(creep.pos.getRangeTo(attacker) > 1) {
+                    if(creep.pos.getRangeTo(attacker) > 0) {
                         creep.safeMoveTo(attacker.pos, {visualizePathStyle: {stroke: '#00ff00'}});
                     }
                     // heal the attacker
                     if(creep.pos.getRangeTo(attacker) === 1) {
-                        creep.heal(attacker);
-                        break;
+                        if(attacker.hits < attacker.hitsMax) {
+                            creep.heal(attacker);
+                            break;
+                        }
                     }
                     if(creep.hits < creep.hitsMax) {
                         creep.heal(creep);
+                        break;
                     }
                 }
+                break;
         }
         // console.log(`Status of task ${task.id}: ${task.status}`);
 

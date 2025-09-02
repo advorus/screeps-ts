@@ -15,6 +15,7 @@ export class Empire {
     memory: EmpireMemory;
     claimTargets: string[] = [];
     dismantleTargets: string[] = [];
+    duoAttackTargets: string[] = [];
 
     constructor() {
         this.colonies = Object.values(Game.rooms)
@@ -91,6 +92,17 @@ export class Empire {
 
 
         this.dismantleTargets = [];
+        // this.duoAttackTargets = ["E9S21"];
+
+        for(const target of this.duoAttackTargets){
+            if(Object.values(Memory.tasks).some(task => task.type === 'DUO_ATTACK' && task.targetRoom === target)) continue;
+            // Create a new duo attack task
+            // get a spawn id in room E9S21
+            const spawnId = this.colonies.find(c => c.room.name === "E9S21")?.spawns[0]?.id;
+            if(spawnId == undefined) continue;
+            TaskManager.createDuoTask('DUO_ATTACK', target, "E9S21", 5, 'duo_attack', spawnId);
+        }
+
         // this.dismantleTargets = ["E8S21"];
 
     }
@@ -98,6 +110,7 @@ export class Empire {
     run() {
         // console.log(`The next room to scout for room: ${this.colonies[1].room.name} is ${this.getRoomToScout(this.colonies[0],10)}`);
         // Empire-level task creation
+        // addHostileRoom("E4S19");
         TaskManager.createTasks(this);
         // console.log(`Got here`);
         TaskManager.reprioritiseTasks(this);
@@ -136,7 +149,7 @@ export class Empire {
 
             if(Game.time%31 == 0){
                 // check if the room has a scout task
-                if(!getAllTaskMemory().find(task => task.type === 'SCOUT' && task.colony === colony.room.name && task.role !== `visibility`)){
+                if(getAllTaskMemory().filter(task => task.type === 'SCOUT' && task.colony === colony.room.name && task.role !== `visibility`).length <2){
                     //if not, create one using the nearest room to scout
                     const nearestRoom = this.getRoomToScout(colony, 6);
                     if (nearestRoom) {
@@ -220,29 +233,34 @@ export class Empire {
                     delete Memory.tasks[taskId]
                 }
             }
-            //
+
+            //if the task is a haul task priority 0, target is storage and the storage has greater than 20e3 energy in it, delete the task
+            if(task.type === `HAUL` && task.priority === 0) {
+                if(!task.targetId) continue;
+                const target = Game.getObjectById(task.targetId);
+                if(target && target.structureType === STRUCTURE_STORAGE) {
+                    if(target.store[RESOURCE_ENERGY] > 20000) {
+                        // console.log(`Deleting task ${task.id} because its target has enough energy`);
+                        delete Memory.tasks[taskId];
+                    }
+                }
+            }
         }
 
         for(const taskId in Memory.tasks){
             const task = getTaskMemory(taskId) as DuoTaskMemory;
 
-            if(`healer` in task && typeof task.healer === `string`){
-                if((task.healer as string).includes('something')){ // just to make typescript happy
-                    if(!(Object.keys(Game.creeps).includes(task.healer))){
-                        // the duo has been broken
-                        // console.log(`Healer creep ${task.healer} is no longer in the game and so removing it from task`);
-                        delete Memory.tasks[taskId];
-                    }
-                }
+            if(task.healer === undefined) continue;
+            if(task.attacker === undefined) continue;
+            if(!(Object.keys(Game.creeps).includes(task.healer))) {
+                // the duo has been broken
+                // console.log(`Healer creep ${task.healer} is no longer in the game and so removing it from task`);
+                delete Memory.tasks[taskId];
             }
-            if(`attacker` in task && typeof task.attacker === `string`){
-                if((task.attacker as string).includes('something')){ // just to make typescript happy
-                    if(!(Object.keys(Game.creeps).includes(task.attacker))){
-                        // the duo has been broken
-                        // console.log(`Attacker creep ${task.attacker} is no longer in the game and so removing it from task`);
-                        delete Memory.tasks[taskId];
-                    }
-                }
+            if(!(Object.keys(Game.creeps).includes(task.attacker))) {
+                // the duo has been broken
+                // console.log(`Attacker creep ${task.attacker} is no longer in the game and so removing it from task`);
+                delete Memory.tasks[taskId];
             }
         }
 
@@ -261,11 +279,13 @@ export class Empire {
         const avgCpu = _.sum(this.memory.cpuUsage) / this.memory.cpuUsage.length;
         if (Game.time % 25 === 0) {
             console.log(`Empire: Average CPU usage over last 1000 ticks: ${avgCpu}`);
-            if(avgCpu < 0.7 * Game.cpu.limit) {
-                this.turnOnSingleRemoteSource();
-            }
-            if(avgCpu > 0.9 * Game.cpu.limit) {
-                this.turnOffSingleRemoteSource();
+            if(Game.time %500 == 0) {
+                if(avgCpu < 0.7 * Game.cpu.limit) {
+                    this.turnOnSingleRemoteSource();
+                }
+                if(avgCpu > 0.9 * Game.cpu.limit) {
+                    this.turnOffSingleRemoteSource();
+                }
             }
         }
 
@@ -309,7 +329,7 @@ export class Empire {
         const visited = new Set<string>();
         const queue: { room: string, depth: number }[] = [{ room: startRoom, depth: 0 }];
 
-        const hostileRooms = getHostileRooms().filter(r => r.lastSeen > Game.time - 3000).map(r => r.roomName);
+        const hostileRooms = getHostileRooms().filter(r => r.lastSeen > Game.time - 5000).map(r => r.roomName);
         const colonyRooms = this.colonies.map(c => c.room.name);
 
         while(queue.length>0){
@@ -320,18 +340,18 @@ export class Empire {
             visited.add(room);
             // console.log(`Visiting room ${room} at depth ${depth}`);
 
-            if(!(getHostileRooms().some(r=>r.roomName==room && r.lastSeen > Game.time - 2000)) && !colonyRooms.includes(room)){
+            if(!(getHostileRooms().some(r=>r.roomName==room && r.lastSeen > Game.time - 3000)) && !colonyRooms.includes(room)){
                 let srMem = getScoutedRoomMemory(room);
                 if(srMem === undefined) {
                     // console.log(`Room ${room} has not been scouted yet, returning as room to scout`);
                     return room;
                 } else{
                     //need to check that it has been a while since we scouted the room
-                    if(!(srMem.lastScouted > Game.time - 3000)) return room;
+                    if(!(srMem.lastScouted > Game.time - 5000)) return room;
                 }
             }
 
-            if(getHostileRooms().some(r=>r.roomName==room && r.lastSeen > Game.time - 1500) || Object.keys(this.colonies).includes(room)) {
+            if(getHostileRooms().some(r=>r.roomName==room && r.lastSeen > Game.time - 3000) || Object.keys(this.colonies).includes(room)) {
                 // If we found a hostile room, we need to remember it
                 continue;
             }
@@ -356,7 +376,7 @@ export class Empire {
         }
 
         for(const remoteRoom of Object.keys(Memory.scoutedRooms)){
-            console.log(`Trying to allocate remote sources in ${remoteRoom}`);
+            // console.log(`Trying to allocate remote sources in ${remoteRoom}`);
             if(checkIfHostileRoom(remoteRoom)) continue; // cannot allocate hostile room sources
 
             const scoutedRoomMemory = getScoutedRoomMemory(remoteRoom);
