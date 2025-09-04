@@ -16,6 +16,9 @@ export class Empire {
     claimTargets: string[] = [];
     dismantleTargets: string[] = [];
     duoAttackTargets: string[] = [];
+    withdrawTargets: string[] = [];
+    roomTerminalsToRebalance: [string,string][] = [];
+    minTerminalBuffer: number = 30e3;
 
     constructor() {
         this.colonies = Object.values(Game.rooms)
@@ -32,7 +35,9 @@ export class Empire {
             Memory.tasks = {};
         }
         for (const colony of this.colonies){
+            // console.log(`Initializing colony in room ${colony.room.name}, cpu used to here ${Game.cpu.getUsed()}`);
             colony.init();
+            // console.log(`Cpu used after initializing colony ${colony.room.name}: ${Game.cpu.getUsed()}`);
         }
 
         Memory.scoutedRooms ??= {};
@@ -49,7 +54,7 @@ export class Empire {
 
         // console.log(`testing`)
 
-        this.claimTargets = ["E7S22"]
+        this.claimTargets = []
 
         for(const roomName of this.claimTargets){
             //check if the colony already exists - if it does then continue
@@ -80,7 +85,7 @@ export class Empire {
         //     }
         // }
 
-        if(Game.time%100==0){
+        if(Game.time%500==0){
             console.log(`Empire has ${this.colonies.length} colonies and ${Object.values(Memory.tasks).length} tasks`);
             console.log(`Allocating remote sources...`);
             this.allocateRemoteSources();
@@ -92,7 +97,7 @@ export class Empire {
 
 
         this.dismantleTargets = [];
-        // this.duoAttackTargets = ["E9S21"];
+        // this.duoAttackTargets = ["E8S22"];
 
         for(const target of this.duoAttackTargets){
             if(Object.values(Memory.tasks).some(task => task.type === 'DUO_ATTACK' && task.targetRoom === target)) continue;
@@ -104,16 +109,51 @@ export class Empire {
         }
 
         // this.dismantleTargets = ["E8S21"];
+        // this.withdrawTargets = [`E11S19`];
+        // for(const roomName of this.withdrawTargets){
+        //     //check if we can see the room
+        //     // if not create a visbility task for the room using the nearest room
+        //     const nearestColonyData = this.getNearestColonyName(roomName);
+        //     let nearestColonyName = nearestColonyData?.name;
+        //     if(!nearestColonyName) continue;
+        //     if(!Object.keys(Game.rooms).includes(roomName)){
+        //         if(!Object.values(Memory.tasks).some(t => t.type === 'SCOUT' && t.targetRoom === roomName && t.role === `visibility`)){
+        //             TaskManager.createTask('SCOUT', this.colonies.find(c => c.room.name === nearestColonyName)?.spawns[0] as StructureSpawn, nearestColonyName, 1, 'visibility', roomName);
+        //         }
+        //         continue;
+        //     }
+
+        //     // if we have visibility of the room check if the room has storage
+        //     // if it does then check if there is a remote pickup task from the storage
+        //     // if not then create one for whatever resource there is the most of in storage
+        //     const room = Game.rooms[roomName];
+        //     const storage = room.find(FIND_STRUCTURES, {
+        //         filter: (s): s is StructureStorage => s.structureType === STRUCTURE_STORAGE
+        //     })[0] as StructureStorage | undefined;
+        //     if(storage && storage.store.getUsedCapacity()>100){
+        //         const resourceType = Object.keys(storage.store).reduce((a, b) => storage.store[a] > storage.store[b] ? a : b) as ResourceConstant;
+        //         if(TaskManager.checkIfExistingTask(`REMOTE_PICKUP`,storage,nearestColonyName)){
+        //             TaskManager.createTask('REMOTE_PICKUP', storage, nearestColonyName, 1, 'pickup', resourceType);
+        //         }
+        //     }
+        // }
 
     }
 
     run() {
+        // console.log(`CPU used during init ${Game.cpu.getUsed()}`)
         // console.log(`The next room to scout for room: ${this.colonies[1].room.name} is ${this.getRoomToScout(this.colonies[0],10)}`);
         // Empire-level task creation
         // addHostileRoom("E4S19");
-        TaskManager.createTasks(this);
+        if(Game.time%5==0){
+            console.log(`Creating new tasks...`);
+            TaskManager.createTasks(this);
+            // console.log(`CPU used after creating tasks: ${Game.cpu.getUsed()}`);
+        }
         // console.log(`Got here`);
         TaskManager.reprioritiseTasks(this);
+
+        // console.log(`CPU used after reprioritising tasks: ${Game.cpu.getUsed()}`)
 
         // console.log(`Empire has ${Object.values(Memory.tasks).length} tasks`);
         // Empire-level spawning decision
@@ -151,7 +191,8 @@ export class Empire {
                 // check if the room has a scout task
                 if(getAllTaskMemory().filter(task => task.type === 'SCOUT' && task.colony === colony.room.name && task.role !== `visibility`).length <2){
                     //if not, create one using the nearest room to scout
-                    const nearestRoom = this.getRoomToScout(colony, 6);
+                    const nearestRoom = undefined //this.getRoomToScout(colony, 6);
+
                     if (nearestRoom) {
                         TaskManager.createTask("SCOUT", colony.room.controller as StructureController, colony.room.name, 1, 'scout', nearestRoom);
                     }
@@ -189,6 +230,15 @@ export class Empire {
             }
 
         }
+        if(this.roomTerminalsToRebalance.length > 0){
+            this.rebalanceTerminals();
+        }
+        if(Game.time%5==0){
+                console.log(`CPU used before market functions: ${Game.cpu.getUsed()}`);
+                this.checkEnergyMarket();
+                console.log(`CPU used after market functions: ${Game.cpu.getUsed()}`);
+        }
+
     }
 
     post() {
@@ -287,6 +337,8 @@ export class Empire {
                     this.turnOffSingleRemoteSource();
                 }
             }
+        } else {
+            // console.log(`Empire: CPU usage this tick: ${Game.cpu.getUsed()}`);
         }
 
 
@@ -446,6 +498,143 @@ export class Empire {
             if(colony.memory.remoteSources === undefined) continue;
             for(const remoteSource of colony.memory.remoteSources){
                 remoteSource.active = false;
+            }
+        }
+    }
+
+    /**
+     * Check the energy market for any inversions and deal on the arb if necessary
+     */
+    checkEnergyMarket(): void {
+        // need to check if I have a valid pair of terminals to deal on any arb if necessary
+        const terminals = Object.values(Game.rooms).map(room => room.terminal).filter(terminal => terminal);
+        const terminalsAvailable = terminals.filter(terminal => terminal?.cooldown == 0 && terminal.store[RESOURCE_ENERGY] > this.minTerminalBuffer) as StructureTerminal[];
+        // console.log(`Terminals available for trading: ${terminalsAvailable.length}`);
+        if(terminalsAvailable.length < 2) return;
+
+        // now need to get all energy orders in the market
+        // const energyOrders = Game.market.getAllOrders().filter(order => order.resourceType === RESOURCE_ENERGY);
+        const sellOrders = Game.market.getAllOrders({type: ORDER_SELL, resourceType: RESOURCE_ENERGY});
+        const buyOrders = Game.market.getAllOrders({type: ORDER_BUY, resourceType: RESOURCE_ENERGY});
+        // get the order with the highest buy and sell prices
+        const maxPriceBuyOrder = buyOrders.reduce((max, order) => order.price > max.price ? order : max, buyOrders[0]);
+        const minPriceSellOrder = sellOrders.reduce((min, order) => order.price < min.price ? order : min, sellOrders[0]);
+        console.log(`Max buy order: ${maxPriceBuyOrder.price} from ${maxPriceBuyOrder.roomName}, Min sell order: ${minPriceSellOrder.price} from ${minPriceSellOrder.roomName}`);
+
+        if(maxPriceBuyOrder && minPriceSellOrder && maxPriceBuyOrder.price > minPriceSellOrder.price) {
+            // we have an arbitrage opportunity
+            // console.log(`Arbitrage opportunity found! Buying energy at ${minPriceSellOrder.price} and selling at ${maxPriceBuyOrder.price}`);
+            // the size of the arb
+            // let amount = Math.min(maxPriceBuyOrder.amount, minPriceSellOrder.amount);
+            // need to bound the amount by the amount that we have the credits to buy, and that we can deliver to the buyer, and the amount that we can accept from the seller (accounting for transaction costs)
+            const creditBalance = Game.market.credits;
+            // amount= Math.min(amount, Math.floor(creditBalance / minPriceSellOrder.price));
+
+            // generate all permutations of pairs of terminals
+            const permutations: [StructureTerminal, StructureTerminal][] = [];
+            for(let i=0; i<terminalsAvailable.length; i++){
+                for(let j=i+1; j<terminalsAvailable.length; j++){
+                    permutations.push([terminalsAvailable[i], terminalsAvailable[j]]);
+                    permutations.push([terminalsAvailable[j], terminalsAvailable[i]]);
+                }
+            }
+
+            let profit = 0;
+            let mostProfitablePair: [StructureTerminal, StructureTerminal] | null = null;
+            let bestBuyingAmount: number | null = null;
+            let bestSellingAmount: number | null = null;
+            let sellerCosts: number | null = null;
+            let buyerCosts: number | null = null;
+
+            if(minPriceSellOrder.roomName === undefined || maxPriceBuyOrder.roomName === undefined) return;
+            console.log(`Calculating profit potential for ${permutations.length} terminal pairs`);
+            for(const [terminalA,terminalB] of permutations){
+                // let pairAmount = amount;
+                // need to find the maximum amount that we can trade, noting that we will have to cover transaction costs
+                // find the maximum amount we can buy, which is limited by credits and being able to cover transaction costs and the amount of the sell order
+                const buyTransactionCosts = Game.market.calcTransactionCost(1000, minPriceSellOrder.roomName, terminalA.room.name);
+                const maxBuyAmount = Math.min(minPriceSellOrder.amount, Math.floor(creditBalance/minPriceSellOrder.price), terminalA.store.getUsedCapacity(RESOURCE_ENERGY)/buyTransactionCosts*1000);
+
+                // find the maximum amount we can sell, which is limited by the amount of the buy order and the amount we have in the terminal, accounting for transaction costs
+                const sellTransactionCosts = Game.market.calcTransactionCost(1000, terminalB.room.name, maxPriceBuyOrder.roomName);
+                const maxSellAmount = Math.min(maxPriceBuyOrder.amount, terminalB.store.getUsedCapacity(RESOURCE_ENERGY) - Math.ceil(sellTransactionCosts*terminalB.store.getUsedCapacity(RESOURCE_ENERGY)/1000));
+
+                // take the minimum of the two
+                const maxPairAmount = Math.min(maxBuyAmount,maxSellAmount);
+
+                // need to get the cost of sending the energy from the room we bought from to the room we sold from, so we are net neutral
+                const transferCosts = Game.market.calcTransactionCost(1000, terminalA.room.name, terminalB.room.name);
+
+                const buyingAmount = maxPairAmount;
+                const amountReceivedBuy = Math.floor(buyingAmount-(buyTransactionCosts? buyTransactionCosts:0) * (buyingAmount / 1000));
+                const transferAmount = Math.floor(amountReceivedBuy-(transferCosts?transferCosts:0)*(amountReceivedBuy/1000));
+                const sellingAmount = Math.floor((1000*transferAmount)/(1000+sellTransactionCosts));
+
+                const profitPotential = sellingAmount*maxPriceBuyOrder.price - buyingAmount*minPriceSellOrder.price; // this is an amount of credits
+
+                console.log(`Pair buyer: ${terminalA.room.name}, seller: ${terminalB.room.name} can buy ${buyingAmount}, sell ${sellingAmount} for a profit of ${profitPotential}`);
+                // console.log(`${terminalA.room.name} would buy ${buyingAmount} Energy at ${minPriceSellOrder.price*buyingAmount} credits and gains ${amountReceivedBuy} energy post deal based on ${buyTransactionCosts} per 1k`);
+                // console.log(`${terminalB.room.name} would sell ${sellingAmount} Energy at ${maxPriceBuyOrder.price*sellingAmount} credits and loses ${sellingAmount+(sellTransactionCosts? sellTransactionCosts:0) * (sellingAmount / 1000)} energy post deal based on ${sellTransactionCosts} per 1k`);
+                // console.log(`When rebalancing, ${terminalA.room.name} would send ${amountReceivedBuy} energy to ${terminalB.room.name}, who would receive ${transferAmount} energy given the cost of ${transferCosts} per 1k`);
+                if(profitPotential > profit){
+                    console.log(`New most profitable pair found! Profit of ${profitPotential} credits`);
+                    profit = profitPotential;
+                    mostProfitablePair = [terminalA,terminalB];
+                    sellerCosts = sellTransactionCosts;
+                    buyerCosts = buyTransactionCosts;
+                    bestBuyingAmount = buyingAmount;
+                    bestSellingAmount = sellingAmount;
+                }
+            }
+
+            if(mostProfitablePair!== undefined && mostProfitablePair !== null){
+                if(bestBuyingAmount && bestSellingAmount){
+                    const pair1Name = mostProfitablePair[0].room.name;
+                    const pair2Name = mostProfitablePair[1].room.name;
+
+                    console.log(`Buying ${bestBuyingAmount} Energy at ${minPriceSellOrder.price*bestBuyingAmount} credits with transaction costs ${buyerCosts? buyerCosts:0 * bestBuyingAmount / 1000}`);
+                    console.log(`Selling ${bestSellingAmount} Energy at ${maxPriceBuyOrder.price*bestSellingAmount} credits with transaction costs ${sellerCosts? sellerCosts:0 * bestSellingAmount / 1000}`);
+                    Game.market.deal(minPriceSellOrder.id, bestBuyingAmount, pair1Name);
+                    Game.market.deal(maxPriceBuyOrder.id, bestSellingAmount, pair2Name);
+                    if(Memory.profit == undefined){
+                        Memory.profit = profit;
+                    }else{
+                        Memory.profit+=profit;
+                    }
+                    if(!this.roomTerminalsToRebalance.some(pair => pair[0] === pair1Name && pair[1] === pair2Name)){
+                        console.log(`Adding new terminal pair to rebalance: ${pair1Name} -> ${pair2Name}`);
+                        this.roomTerminalsToRebalance.push([pair1Name, pair2Name]);
+                    }
+                }
+            }
+        }
+    }
+    rebalanceTerminals(): void {
+        for(const pair of this.roomTerminalsToRebalance){
+            const roomA = Game.rooms[pair[0]];
+            const roomB = Game.rooms[pair[1]];
+            if(!roomA || !roomB) continue;
+
+            const termA = roomA.terminal;
+            const termB = roomB.terminal;
+            if(!termA || !termB) continue;
+            if(termA.cooldown>0 || termB.cooldown>0) continue;
+            if(termA.store[RESOURCE_ENERGY] >= this.minTerminalBuffer && termB.store[RESOURCE_ENERGY]>=this.minTerminalBuffer){
+                this.roomTerminalsToRebalance = this.roomTerminalsToRebalance.filter(p => p !== pair);
+                console.log(`Both terminals have enough energy`);
+            }
+            const excessA = termA.store[RESOURCE_ENERGY]-this.minTerminalBuffer;
+            const deficitB = this.minTerminalBuffer - termB.store[RESOURCE_ENERGY];
+            console.log(`Rebalancing terminals - have ${excessA} excess energy in ${roomA.name} and ${deficitB} deficit energy in ${roomB.name}`);
+
+            if(excessA > 0 && deficitB > 0){
+                const transferCosts = Game.market.calcTransactionCost(1000,roomA.name,roomB.name);
+                const transferAmount = Math.min(excessA-Math.ceil(transferCosts*excessA/1000), deficitB);
+                if(termA.send(RESOURCE_ENERGY, transferAmount, roomB.name)=== OK) {
+                    console.log(`Sent ${transferAmount} energy from ${roomA.name} to ${roomB.name}`);
+                    // remove the pair from the list
+                    this.roomTerminalsToRebalance = this.roomTerminalsToRebalance.filter(p => p !== pair);
+                }
             }
         }
     }

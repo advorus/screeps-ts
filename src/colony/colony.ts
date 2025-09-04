@@ -79,7 +79,7 @@ export class Colony {
         this.updateExtensionIds();
         this.updateSpawnIds();
 
-        this.memory.storageId = this.room.find(FIND_STRUCTURES, {
+        this.memory.storageId ??= this.room.find(FIND_STRUCTURES, {
             filter: (s): s is StructureStorage => s.structureType === STRUCTURE_STORAGE
         }).map(s => s.id)[0];
         this.storage = Game.getObjectById(this.memory.storageId) as StructureStorage | undefined;
@@ -93,10 +93,12 @@ export class Colony {
         this.memory.haulerPartsNeeded ??= 0;
         this.memory.remoteSources ??= [];
 
+
         this.setFocusOnUpgrade();
         this.setFillerContainerIds();
         this.setUpgradeContainerIds();
         // this.updateStorage();
+
 
         // cache creeps assigned to this colony via memory
         this.creeps = Object.values(Game.creeps).filter(c=>getCreepMemory(c.name).colony === this.room.name);
@@ -111,6 +113,8 @@ export class Colony {
         this.storage = Game.getObjectById(this.memory.storageId) as StructureStorage | undefined;
         // this.minerals = this.room.find(FIND_MINERALS);
 
+
+
         // console.log(`got here for room ${this.room.name}`);
 
         this.updateSpawnsForSpawning();
@@ -124,6 +128,8 @@ export class Colony {
                 this.sourceContainers.push(container[0]);
             }
         }
+
+
 
         // Place spawn stamp if the controller level increased
         if (this.room.controller !== undefined) {
@@ -213,10 +219,16 @@ export class Colony {
             }
         }
 
+
         // Place construction sites if we are missing them on the map
         if (this.isMissingStructures()){
-            ConstructionManager.placeConstructionSites(this.room, this.memory.plannedConstructionSites);
+            if(Game.time%100 == 0){
+                // console.log(`CPU used to this point in init of ${this.room.name}: ${Game.cpu.getUsed()}`);
+                ConstructionManager.placeConstructionSites(this.room, this.memory.plannedConstructionSites);
+                // console.log(`CPU used to this point in init of ${this.room.name}: ${Game.cpu.getUsed()}`);
+            }
         }
+
 
         if(Game.time%30==0){
             this.updateHaulerPartsNeeded();
@@ -227,10 +239,16 @@ export class Colony {
             if(terminals){
                 this.memory.terminalId ??= terminals[0]?.id;
             }
+
+            this.updateMineralContainers();
         }
+
+
 
         // Initialise visualiser
         this.colonyVisualizer = new ColonyVisualizer(this);
+
+
 
     }
 
@@ -299,6 +317,21 @@ export class Colony {
         this.memory.spawnIds = this.room.find(FIND_MY_SPAWNS).map(s => s.id);
     }
 
+    updateMineralContainers(): void {
+        this.memory.mineralContainers = [];
+        for(const mineralId of this.memory.minerals || []){
+            const mineral = Game.getObjectById(mineralId);
+            if(!mineral) continue;
+            const containers = this.room.find(FIND_STRUCTURES, {filter: s=> s.structureType==STRUCTURE_CONTAINER}) as StructureContainer[] | null;
+            if(!containers) continue;
+            for(const container of containers){
+                if(container.pos.isNearTo(mineral.pos)){
+                    this.memory.mineralContainers.push(container.id);
+                }
+            }
+        }
+    }
+
     updateHaulerPartsNeeded(): void {
         // console.log(`Updating hauler parts needed for ${this.room.name}`);
         if(this.room.controller === undefined){
@@ -348,6 +381,50 @@ export class Colony {
             const roundTripTime = timeToSource + timeFromSource;
             // the number of carry parts needed is minerparts*2*roundTripTime
             haulerPartsNeeded += existingMinerParts * 2 * roundTripTime / 50;
+        }
+
+        // now do same operation but for mineral tasks
+
+        // every 5 ticks, any miners assigned to the mineral will extract 1*the number of work parts
+        // this will need to be moved to the central storage, so need to compute the distance to and from storage to the container
+        for(const mineralId of this.memory.minerals || []){
+            const mineral = Game.getObjectById(mineralId);
+            if(!mineral) continue;
+            let existingMinerParts = 0
+            // now get the number of mining parts assigned to this mineral
+            const miningTasks = Object.values(Memory.tasks).filter(task =>
+                task.type === 'MINE' && task.targetId === mineral.id && task.status === 'IN_PROGRESS' && task.colony == this.room.name
+            );
+            for(const miningTask of miningTasks){
+                if(miningTask.assignedCreep){
+                    const creep = Game.creeps[miningTask.assignedCreep];
+                    if(creep){
+                        const numMiningParts = creep.body.filter(part => part.type === WORK).length;
+                        existingMinerParts += numMiningParts;
+                    }
+                }
+            }
+            // now need the distance of the path from the mineral container to the storage
+            let haulTarget = this.room.storage?.pos;
+            if(!this.room.storage){
+                haulTarget = this.spawns[0].pos;
+            }
+            haulTarget??= new RoomPosition(25,25,this.room.name);
+            const pathToSource = PathFinder.search(haulTarget, mineral.pos).path;
+            const timeToSource = pathToSource.length;
+            // calculate the time taken to return from the source given the 2:1 carry/move ratio
+            // takes 2 ticks to traverse plain, 1 tick to traverse road,
+            const timeFromSource = pathToSource.reduce((acc, pos) => {
+                const terrain = Game.map.getRoomTerrain(pos.roomName).get(pos.x, pos.y);
+                if (terrain === TERRAIN_MASK_SWAMP) {
+                    return acc + 10;
+                } else {
+                    return acc + 2;
+                }
+            }, 0);
+            const roundTripTime = timeToSource + timeFromSource;
+            // the number of carry parts needed is minerparts*2*roundTripTime
+            haulerPartsNeeded += 0.2 * existingMinerParts * roundTripTime / 50;
         }
 
         this.memory.haulerPartsNeeded = haulerPartsNeeded;
@@ -771,7 +848,7 @@ export class Colony {
         // console.log(`Checking ${this.room.name} for miner need: ${this.sourceContainers.length} source containers and ${this.room.find(FIND_MY_CREEPS, { filter: (c) => c.memory.role === 'miner' }).length} existing miners`);
         const miners = this.creeps.filter(c=>c.memory.role === 'miner');
 
-        return miners.length < this.sourceContainers.length;
+        return miners.length < getAllTaskMemory().filter(t=> t.type === 'MINE' && t.status !== 'DONE' && t.colony === this.room.name).length;
     }
 
     getRemoteMinerNeed(): boolean{
@@ -827,7 +904,7 @@ export class Colony {
         const visibilityTasks = scoutTasks.filter(t=>t.role==`visibility`);
         // console.log(`Colony ${this.room.name} has ${scoutTasks.length} scout tasks`);
         // console.log(`Colony ${this.room.name} needs a scout: ${scouts.length < 1 && scoutTasks.length > 0}`);
-        return scouts.length < 1 + visibilityTasks.length && scoutTasks.length > 0;
+        return scouts.length < scoutTasks.length;
 
     }
 
@@ -996,20 +1073,50 @@ export class Colony {
                     delete creep.memory.taskId;
                     break;
                 }
-                if (creep.store[RESOURCE_ENERGY] === 0) {
+                if (creep.store.getUsedCapacity() === 0) {
                     task.status = `DONE`;
                     delete creep.memory.taskId;
                     break;
                 }
-                if (creep.transfer(target as AnyStructure, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-                    creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+                if(task.resourceType!== undefined){
+                    if(creep.store[task.resourceType] === 0){
+                        task.status=`DONE`;
+                        delete creep.memory.taskId;
+                        break;
+                    }
+                    if (creep.transfer(target as AnyStructure, task.resourceType) === ERR_NOT_IN_RANGE) {
+                        creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+                    }
+                } else {
+                    if (creep.transfer(target as AnyStructure, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+                        creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+                    }
+                    for(const resourceType of Object.keys(creep.store) as ResourceConstant[]){
+                    if(creep.transfer(target as AnyStructure, resourceType) === ERR_NOT_IN_RANGE) {
+                        creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+                    }
                 }
+
+                }
+                // try to transfer the other resources
+
                 break;
             case 'MINE':
                 //find the source container next to the source
-                const sourceContainer = this.room.find(FIND_STRUCTURES, {
-                    filter: (s) => s.structureType === STRUCTURE_CONTAINER && s.pos.isNearTo(target)
-                })[0];
+                // check if there are source containers listed in the room memory
+                let sourceContainer = undefined;
+                if(this.sourceContainers === undefined || this.memory.mineralContainers === undefined){
+                    sourceContainer = this.room.find(FIND_STRUCTURES, {
+                        filter: (s) => s.structureType === STRUCTURE_CONTAINER && s.pos.isNearTo(target)
+                    })[0];
+                } else{
+                    // convert the mineralContainerIds to objects
+                    let mineralContainers = this.memory.mineralContainers.map(id => Game.getObjectById(id)).filter(c => c !== null) as StructureContainer[];
+                    let mineralAndSourceContainers = this.sourceContainers.concat(mineralContainers);
+                    sourceContainer = mineralAndSourceContainers.find(c => c.pos.isNearTo(target));
+                }
+                if(sourceContainer == undefined) break;
+
                 if(!creep.pos.isEqualTo(sourceContainer.pos)) {
                     creep.moveTo(sourceContainer.pos);
                 }else{
@@ -1021,6 +1128,11 @@ export class Colony {
                 break;
             case `FILL`:
                 // there is no longer any energy in the container to fill with
+                if(creep.store.getUsedCapacity()>creep.store.getUsedCapacity(RESOURCE_ENERGY)){
+                    task.status= `DONE`;
+                    delete creep.memory.taskId;
+                    break;
+                }
                 if(creep.store.getUsedCapacity(RESOURCE_ENERGY) === 0) {
                     if(Game.getObjectById(task.targetId)?.store[RESOURCE_ENERGY] === 0) {
                         task.status = `DONE`;
@@ -1070,11 +1182,34 @@ export class Colony {
                     task.status = `DONE`;
                     break;
                 }
+
                 if (creep.pickup(target as Resource) === ERR_NOT_IN_RANGE) {
                     creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
                 }
-                if(creep.withdraw(target as AnyStructure, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-                    creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+                if(task.resourceType!== undefined){
+                    // console.log(`Creep ${creep.name} is withdrawing ${task.resourceType} from ${target.id}`);
+                    if(creep.withdraw(target as AnyStructure, task.resourceType) === ERR_NOT_IN_RANGE) {
+                        creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+                    }
+                    if(creep.withdraw(target as AnyStructure, task.resourceType) === ERR_NOT_ENOUGH_RESOURCES){
+                        // console.log(`Creep ${creep.name} has withdrawn ${task.resourceType} from ${target.id}`);
+                        delete creep.memory.taskId;
+                        task.status = `DONE`;
+                        break;
+                    }
+                } else {
+                    // console.log(`Creep ${creep.name} is withdrawing ENERGY from ${target.id}`);
+                    if(creep.withdraw(target as AnyStructure, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+                        creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+                    }
+                }
+                // need to try and pickup other resource types
+
+                // if the target is a container and its empty then mark the task as done
+                if (target instanceof StructureContainer && target.store.getUsedCapacity() === 0) {
+                    task.status = `DONE`;
+                    delete creep.memory.taskId;
+                    break;
                 }
                 break;
             case `SCOUT`:
@@ -1181,10 +1316,23 @@ export class Colony {
                     task.status = `DONE`;
                     break;
                 }
-                if(!creep.pos.isNearTo(target.pos)) {
-                    creep.safeMoveTo(target.pos);
-                }else{
-                    creep.pickup(target as Resource);
+                if(target instanceof Resource) {
+                    if(!creep.pos.isNearTo(target.pos)) {
+                        creep.safeMoveTo(target.pos);
+                    }else{
+                        creep.pickup(target as Resource);
+                    }
+                }
+                if(target instanceof StructureStorage){
+                    let resourceType: ResourceConstant = RESOURCE_ENERGY;
+                    if(task.resourceType!== undefined){
+                        resourceType = task.resourceType;
+                    }
+                    if(!creep.pos.isNearTo(target.pos)) {
+                        creep.safeMoveTo(target.pos);
+                    }else{
+                        creep.withdraw(target as StructureStorage, resourceType);
+                    }
                 }
                 break;
             case `DUO_ATTACK`:

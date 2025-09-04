@@ -12,6 +12,7 @@ declare global {
         tasks: {[id:string]:AnyTaskMemory};
         hostileRooms: {roomName:string, lastSeen:number}[];
         scoutedRooms: {[roomName:string]:ScoutedRoomMemory};
+        profit: number;
     }
 
     interface CreepMemory {
@@ -53,6 +54,7 @@ declare global {
         remoteSources?: {id:string, active: boolean, distance: number, room: string}[];
         minerals?: Id<Mineral>[];
         terminalId?: Id<StructureTerminal>;
+        mineralContainers?: Id<StructureContainer>[];
     }
 
     interface EmpireMemory {
@@ -95,6 +97,7 @@ declare global {
         priority?: number;
         role?: string;
         targetRoom?: string;
+        resourceType?: ResourceConstant;
     }
 
     interface DuoTaskMemory extends TaskMemory{
@@ -137,5 +140,6 @@ declare global {
         fillerContainers: StructureContainer[];
         towers: StructureTower[];
         storage: StructureStorage | undefined;
+        minerals: Mineral[];
     }
 }

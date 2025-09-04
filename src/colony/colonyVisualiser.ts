@@ -73,7 +73,7 @@ export class ColonyVisualizer {
                     {
                         align: 'left',
                         color: 'white',
-                        font: 'bold 2px Arial'
+                        font: 'bold 10px Arial'
                     }
                 );
 
@@ -89,7 +89,7 @@ export class ColonyVisualizer {
                 {
                     align: 'left',
                     color: 'white',
-                    font: 'bold 2px Arial'
+                    font: 'bold 10px Arial'
                 }
             );
             y++;
