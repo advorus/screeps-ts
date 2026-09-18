@@ -54,7 +54,7 @@ export class Empire {
 
         // console.log(`testing`)
 
-        this.claimTargets = []
+        this.claimTargets = ["E2S19"];
 
         for(const roomName of this.claimTargets){
             //check if the colony already exists - if it does then continue
@@ -65,7 +65,7 @@ export class Empire {
                 if(!Object.values(Memory.tasks).find(t => t.type === 'CLAIM' && t.targetRoom === roomName)) {
                     // console.log(`Creating claim task for room ${roomName}`);
                     // console.log("testing");
-                    TaskManager.createTask('CLAIM', this.colonies[0].spawns[0], this.colonies[0].room.name, 5, 'claimer', roomName);
+                    TaskManager.createTask('CLAIM', this.colonies[1].spawns[0], this.colonies[1].room.name, 5, 'claimer', roomName);
                 }
             }
 
@@ -96,7 +96,7 @@ export class Empire {
         }
 
 
-        this.dismantleTargets = [];
+        // this.dismantleTargets = ["E2S19"];
         // this.duoAttackTargets = ["E8S22"];
 
         for(const target of this.duoAttackTargets){
@@ -178,20 +178,22 @@ export class Empire {
             if(colony.spawns.length<1){
                 // the first colony not with the colony names should spawn a builder, registered to the new colony name
                 // @todo: this logic should be improved to find the nearest colony
-                const anotherColony = this.colonies.find(c => c.room.name !== colony.room.name);
+                if(!colony.room.name) continue;
+                const anotherColony = this.getNearestColonyName(colony.room.name, false)?.name;//this.colonies.find(c => c.room.name !== colony.room.name);
                 if (anotherColony) {
                     // if the colony has less than 3 workers, spawn one and send it to the new colony
                     if(colony.creeps.filter(c => c.memory.role === 'worker').length < 3){
-                        anotherColony.spawnCreep('worker', colony.room.name);
+                        // console.log(`Trying to spawn workers using ${anotherColony} for ${colony.room.name} which has no spawn`);
+                        this.colonies.find(c => c.room.name === anotherColony)?.spawnCreep('worker', colony.room.name);
                     }
                 }
             }
 
-            if(Game.time%31 == 0){
+            if(Game.time%200 == 0){
                 // check if the room has a scout task
                 if(getAllTaskMemory().filter(task => task.type === 'SCOUT' && task.colony === colony.room.name && task.role !== `visibility`).length <2){
                     //if not, create one using the nearest room to scout
-                    const nearestRoom = undefined //this.getRoomToScout(colony, 6);
+                    const nearestRoom = this.getRoomToScout(colony, 4);
 
                     if (nearestRoom) {
                         TaskManager.createTask("SCOUT", colony.room.controller as StructureController, colony.room.name, 1, 'scout', nearestRoom);
@@ -201,7 +203,7 @@ export class Empire {
         }
         // if there is an unassigned claimer task then spawn a claimer creep
         if (TaskManager.hasUnassignedTask(this, 'CLAIM')) {
-            const colony = this.colonies[0]; // Get the first colony - improve to find the nearest room to the claimer task
+            const colony = this.colonies[1]; // Get the first colony - improve to find the nearest room to the claimer task
             colony.spawnCreep('claimer');
         }
 
@@ -345,11 +347,12 @@ export class Empire {
         // console.log(Game.cpu.getUsed());
     }
 
-    getNearestColonyName(roomName: string): {name:string, distance: number} | null {
+    getNearestColonyName(roomName: string, allowSelf: boolean = true): {name:string, distance: number} | null {
         let nearestColony: Colony | null = null;
         let nearestDistance = Infinity;
 
         for (const colony of this.colonies) {
+            if (colony.room.name === roomName && !allowSelf) continue;
             const routeBtwRooms = Game.map.findRoute(colony.room.name, roomName, {
                 routeCallback(roomName, fromRoomName) {
                     if(checkIfHostileRoom(roomName)) return Infinity;

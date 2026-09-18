@@ -364,32 +364,38 @@ export class TaskManager {
 
             for(let roomName of focus.dismantleTargets) {
                 removeHostileRoom(roomName);
-                // console.log(`Creating dismantle tasks for room ${roomName}`);
+                console.log(`Creating dismantle tasks for room ${roomName}`);
                 let scoutedRoomData = getScoutedRoomMemory(roomName);
-                if(scoutedRoomData){
+                // if(scoutedRoomData){
                     // console.log(`Found scouted room data for ${roomName}`);
                     if(getAllTaskMemory().filter(t=>t.type == `DISMANTLE` && t.targetRoom == roomName).length > 3) continue;
-                    let nearestColonyName = focus.getNearestColonyName(roomName);
+                    let nearestColonyName = focus.getNearestColonyName(roomName)?.name ?? undefined;
                     // console.log(`Nearest colony for room ${roomName} is ${nearestColonyName}`);
                     if(!Object.keys(Game.rooms).includes(roomName)) {
                         // need to get visbility of the room
                         // create a scout task from the nearest colony
                         if(nearestColonyName) {
                             const colony = focus.colonies.find(c => c.room.name === nearestColonyName);
-                            if(this.checkIfExistingTask(`SCOUT`, colony.spawns[0] , nearestColonyName.name)) continue;
-                            this.createTask(`SCOUT`, colony.spawns[0] , nearestColonyName.name, 1, `scout`, roomName);
+                            if(!colony){
+                                console.log(`No colony found for room ${nearestColonyName}`);
+                                continue;
+                            }
+                            if(this.checkIfExistingTask(`SCOUT`, colony.spawns[0] , nearestColonyName)) continue;
+                            this.createTask(`SCOUT`, colony.spawns[0] , nearestColonyName, 1, `visibility`, roomName);
                             console.log(`Created SCOUT task for room ${roomName} from colony ${nearestColonyName}`);
                         }
                         continue;
                     }
                     if(!nearestColonyName) continue;
-                    for(const targetId of scoutedRoomData.hostileStructures) {
-                        console.log(targetId);
-                        if(Game.getObjectById(targetId) == null) continue;
-                        if(this.checkIfExistingTask(`DISMANTLE`, Game.getObjectById(targetId) as AnyStructure | Source, nearestColonyName.name)) continue;
-                        this.createTask(`DISMANTLE`, Game.getObjectById(targetId) as AnyStructure | Source, nearestColonyName.name, 1, `dismantle`, roomName);
+                    if(scoutedRoomData){
+                        for(const targetId of scoutedRoomData.hostileStructures) {
+                            console.log(targetId);
+                            if(Game.getObjectById(targetId) == null) continue;
+                            if(this.checkIfExistingTask(`DISMANTLE`, Game.getObjectById(targetId) as AnyStructure | Source, nearestColonyName)) continue;
+                            this.createTask(`DISMANTLE`, Game.getObjectById(targetId) as AnyStructure | Source, nearestColonyName, 1, `dismantle`, roomName);
+                        }
                     }
-                }
+                // }
 
             }
         } else {

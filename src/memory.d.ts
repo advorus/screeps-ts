@@ -73,6 +73,7 @@ declare global {
         lastScouted: number,
         sources: string[];
         minerals: string | null;
+        mineralType: string | null;
         controller?: {
             id?: string,
             owner?: string,

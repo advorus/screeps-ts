@@ -133,10 +133,17 @@ export function updateCachedRoomDataForRoom(roomName:string): void{
         }
     });
 
+    let minerals = Game.rooms[roomName].find(FIND_MINERALS).map(mineral => mineral.id);
+    let mineralType = null;
+    if(minerals[0]){
+        mineralType = Game.getObjectById(minerals[0])?.mineralType ?? null;
+    }
+
     Memory.scoutedRooms[roomName] = {
         lastScouted: Game.time,
         sources: Game.rooms[roomName].find(FIND_SOURCES).map(source => source.id),
-        minerals: Game.rooms[roomName].find(FIND_MINERALS).length > 0 ? Game.rooms[roomName].find(FIND_MINERALS)[0].id : null,
+        minerals: minerals.length > 0 ? minerals[0] : null,
+        mineralType: mineralType,
         controller: controllerObj,
         hostiles: Game.rooms[roomName].find(FIND_HOSTILE_CREEPS).length,
         hostileStructures: Game.rooms[roomName].find(FIND_HOSTILE_STRUCTURES).map(structure => structure.id),
@@ -156,19 +163,4 @@ export function updateCachedRoomDataForRoom(roomName:string): void{
     }
 }
 
-// interface ScoutedRoomMemory {
-//         lastScouted: number,
-//         sources: string[];
-//         minerals: string | null;
-//         controller: {
-//             id: string,
-//             owner: string | null,
-//             reserved: string|null,
-//             level: number|null,
-//             safeMode: boolean
-//         } | null,
-//         hostiles: number,
-//         hostileStructures: string[];
-//         terrainScore: number,
-//         exits: string[]
-//     }
+

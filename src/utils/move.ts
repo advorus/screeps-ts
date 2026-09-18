@@ -12,6 +12,17 @@ declare global {
          */
         safeMoveTo(target: RoomPosition | RoomObject, opts?: MoveToOpts): ScreepsReturnCode;
         betterMoveTo(location: RoomPosition | RoomObject, opts?: MoveToOpts): ScreepsReturnCode;
+        flee(): ScreepsReturnCode | void;
+    }
+}
+
+Creep.prototype.flee = function(): ScreepsReturnCode | void {
+    // find the nearest hostile and move by path 4 cells away
+    const hostiles = this.room.find(FIND_HOSTILE_CREEPS);
+    const nearestHostile = this.pos.findClosestByRange(hostiles);
+    if(nearestHostile !== null){
+        const path = PathFinder.search(this.pos, {pos: nearestHostile.pos, range:3}, {flee: true}).path;
+        return this.moveByPath(path);
     }
 }
 
@@ -27,10 +38,11 @@ Creep.prototype.safeMoveTo = function(target: RoomPosition | RoomObject, opts?: 
 
     if(opts==undefined) opts = {};
 
-    opts.reusePath = 10;
-    opts.maxRooms = 25;
-    opts.plainCost = 2;
-    opts.swampCost = 10;
+    opts.reusePath ??= 10;
+    opts.maxRooms ??= 25;
+    opts.plainCost ??= 2;
+    opts.swampCost ??= 10;
+
     // opts.maxOps = 20000;
     // if(this.pos.isNearEdge()) opts.reusePath = 0;
 
@@ -67,14 +79,9 @@ Creep.prototype.safeMoveTo = function(target: RoomPosition | RoomObject, opts?: 
     const hostiles = this.room.find(FIND_HOSTILE_CREEPS, {
         filter: c => c.pos.inRangeTo(this.pos, 5)
     });
-    if (hostiles.length > 0&&this.memory.role!==`duo_attacker`&&this.memory.role!==`duo_healer`) {
+    if (hostiles.length > 0&&this.memory.role!==`duo_attacker`&&this.memory.role!==`duo_healer`&&this.memory.role!==`worker`) {
         this.say('⚠️ Hostile!');
-        // find the nearest hostile and move by path 4 cells away\
-        const nearestHostile = this.pos.findClosestByRange(hostiles);
-        if(nearestHostile !== null){
-            const path = PathFinder.search(this.pos, {pos: nearestHostile.pos, range:3}, {flee: true}).path;
-            return this.moveByPath(path);
-        }
+        this.flee();
     }
     let targetRoom = undefined;
     if(target instanceof RoomObject) {
@@ -111,7 +118,7 @@ Creep.prototype.safeMoveTo = function(target: RoomPosition | RoomObject, opts?: 
         return this.betterMoveTo(pos, opts);
     }
 
-    return this.moveTo(pos, opts);
+    return this.betterMoveTo(pos, opts);
 }
 
 Creep.prototype.betterMoveTo = function(location: RoomPosition, opts?: MoveToOpts): ScreepsReturnCode {
@@ -172,6 +179,24 @@ Creep.prototype.betterMoveTo = function(location: RoomPosition, opts?: MoveToOpt
                     // if(!Object.keys(Game.rooms).includes(roomName)) return new PathFinder.CostMatrix();
                     let rCMat = getCostMatrixForRoom(roomName);
                     if(rCMat !== undefined){
+                        // find hostiles in the room and set any tile within 3 range to 255
+                        let room = Game.rooms[roomName];
+                        if(room){
+                            for(const hostile of room.find(FIND_HOSTILE_CREEPS)){
+                                // set every tile in a 3x3 circle of the hostile to 255
+                                for(let i=-3;i<4;i++){
+                                    for(let j=-3;j<4;j++){
+                                        const xpos = hostile.pos.x + i;
+                                        const ypos = hostile.pos.y + j;
+                                        if(xpos<0 || xpos>49 || ypos<0 || ypos>49) continue;
+                                        rCMat.set(xpos, ypos, 255);
+                                    }
+                                }
+                            }
+                            for(const creep of room.find(FIND_MY_CREEPS)){
+                                rCMat.set(creep.pos.x, creep.pos.y, 255);
+                            }
+                        }
                         return rCMat;
                     }
 
@@ -206,6 +231,7 @@ Creep.prototype.betterMoveTo = function(location: RoomPosition, opts?: MoveToOpt
         )
         if (betterPath.incomplete){
             console.log("There was an error finding the path from " + this.pos + " to " + location);
+            // this.flee();
         }
         // console.log("path from"+this.pos+" to "+location+" is:"+betterPath.path+" avoiding rooms "+Memory.hostileRooms);
         this.memory.betterPath = betterPath.path;

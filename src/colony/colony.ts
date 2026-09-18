@@ -701,7 +701,7 @@ export class Colony {
             return [WORK, CARRY, MOVE, MOVE];
         }
         else {
-            const num_work_parts = Math.min(Math.floor((this.room.energyAvailable) / 200),5);
+            const num_work_parts = Math.min(Math.floor((this.room.energyAvailable) / 200),8);
             const body: BodyPartConstant[] = [];
             for(let i=0;i<num_work_parts;i++){
                 body.push(WORK);
@@ -1118,7 +1118,7 @@ export class Colony {
                 if(sourceContainer == undefined) break;
 
                 if(!creep.pos.isEqualTo(sourceContainer.pos)) {
-                    creep.moveTo(sourceContainer.pos);
+                    creep.safeMoveTo(sourceContainer.pos);
                 }else{
                     creep.harvest(target as Source);
                 }
@@ -1224,16 +1224,20 @@ export class Colony {
                             // console.log(`Room ${task.targetRoom} was last scouted at ${srMem.lastScouted}`);
                             if(srMem.lastScouted!== undefined){
                                 if(srMem.lastScouted + 1000 > Game.time){
-                                    delete creep.memory.taskId;
-                                    task.status = `DONE`;
+                                    if(task.role !==  `visibility`) {
+                                        delete creep.memory.taskId;
+                                        task.status = `DONE`;
+                                    }
                                     break;
                                 }
                             }
                         }
                     }
-                    updateCachedRoomDataForRoom(task.targetRoom);
-                    delete creep.memory.taskId;
-                    task.status = `DONE`;
+                    if(task.role!==`visibility`){
+                        updateCachedRoomDataForRoom(task.targetRoom);
+                        delete creep.memory.taskId;
+                        task.status = `DONE`;
+                    }
                     break;
                 }
                 break;
@@ -1249,7 +1253,7 @@ export class Colony {
                     // console.log(creep.pos.isInsideRoom());
                     if(creep.room.name != task.targetRoom || !creep.pos.isInsideRoom()){
                         // console.log(`Creep at position ${creep.pos} to claim room ${task.targetRoom}`);
-                        creep.moveTo(new RoomPosition(25, 25, task.targetRoom), {visualizePathStyle: {stroke: '#ffffff'}});
+                        creep.safeMoveTo(new RoomPosition(25, 25, task.targetRoom), {visualizePathStyle: {stroke: '#ffffff'}});
                     }
                     if (creep.claimController(Game.rooms[task.targetRoom]?.controller as StructureController) === ERR_NOT_IN_RANGE) {
                         creep.safeMoveTo(Game.rooms[task.targetRoom]?.controller as StructureController, {visualizePathStyle: {stroke: '#ffffff'}});
@@ -1269,8 +1273,9 @@ export class Colony {
 
                 // console.log(taskMem.targetRoom, taskMem.targetId);
 
-                if(taskMem.targetRoom == undefined) break;
+                if(taskMem.targetRoom == undefined) taskMem.targetRoom = taskMem.colony;
                 if(taskMem.targetId === undefined) break;
+                if(taskMem.targetRoom === undefined) break;
 
                 if(creep.room.name !== taskMem.targetRoom || !creep.pos.isInsideRoom()) {
                     // move to the colony
