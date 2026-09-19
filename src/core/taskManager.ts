@@ -1,7 +1,7 @@
 
 // import { Empire } from "./empire";
 import { get } from "lodash";
-import { getAllTaskMemory, getCreepMemory, getScoutedRoomMemory, getTaskMemory, removeHostileRoom } from "./memory";
+import { getAllTaskMemory, getCreepMemory, getScoutedRoomMemory, getTaskMemory, removeHostileRoom, setTaskAssignTick } from "./memory";
 // import { Colony } from "colony/colony";
 // import { Empire } from "./empire";
 import {profile} from "Profiler";
@@ -281,6 +281,42 @@ export class TaskManager {
                     continue;
                 }
 
+                // Prefer assigning HARVEST and UPGRADE tasks to the nearest
+                // truly-idle creep in the colony. Build a small candidate list
+                // and only assign if this creep is the nearest; this reduces
+                // contention and unnecessary travel/queuing.
+                if (task.type === 'HARVEST' || task.type === 'UPGRADE') {
+                    try {
+                        const candidates = Object.values(Game.creeps).filter(c => {
+                            if (!c || !c.memory) return false;
+                            // same colony
+                            if (getCreepMemory(c.name).colony !== task.colony) return false;
+                            // not already assigned
+                            if (c.memory.taskId) return false;
+                            // not spawning
+                            if ((c as any).spawning) return false;
+                            // role: ignore scouts/duo roles
+                            if (c.memory.role === 'scout' || c.memory.role === 'duo_attacker' || c.memory.role === 'duo_healer') return false;
+                            // basic resource suitability
+                            if (task.type === 'HARVEST' && c.store.getFreeCapacity(RESOURCE_ENERGY) === 0) return false;
+                            if (task.type === 'UPGRADE' && c.store[RESOURCE_ENERGY] === 0) return false;
+                            return true;
+                        });
+                        if (candidates.length > 0) {
+                            const targetObj = Game.getObjectById(task.targetId as string) as any;
+                            const distances = candidates.map(c => ({name: c.name, d: c.pos.getRangeTo(targetObj.pos)}));
+                            distances.sort((a, b) => a.d - b.d);
+                            // nearest candidate is distances[0]
+                            if (distances[0].name !== creep.name) {
+                                // current creep is not the nearest idle candidate; skip assignment
+                                continue;
+                            }
+                        }
+                    } catch (e) {
+                        // on error, fall back to existing behavior
+                    }
+                }
+
                 // check if there are haulers in the room - if there are then the only type of creep to be able to pickup from sources is haulers
                 const haulersInRoom = creep.room.find(FIND_MY_CREEPS, {
                     filter: c=>c.memory.role===`hauler`
@@ -296,9 +332,14 @@ export class TaskManager {
                     }
                 }
 
-                task.assignedCreep = creep.name;
-                task.status = `IN_PROGRESS`;
-                creep.memory.taskId = task.id;
+                // Lightweight check-and-set to avoid races where multiple
+                // creeps attempt to claim the same task in the same tick.
+                if (!task.assignedCreep) {
+                    task.assignedCreep = creep.name;
+                    try { setTaskAssignTick(task.id as string, Game.time); } catch(e) {}
+                    task.status = `IN_PROGRESS`;
+                    creep.memory.taskId = task.id;
+                }
                 // console.log(`Assigned task ${task.id} of type ${task.type} to creep ${creep.name}`)
 
                 // if the task is a haul task and the energy stored in all creeps assigned to drop off at the target is less than the target's free capacity, create another haul task

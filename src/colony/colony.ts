@@ -968,7 +968,7 @@ export class Colony {
                     break;
                 }
                 if (creep.harvest(target as Source) === ERR_NOT_IN_RANGE) {
-                    creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffaa00'}});
+                    creep.betterMoveTo(target, {visualizePathStyle: {stroke: '#ffaa00'}});
                 }
                 break;
             case 'UPGRADE':
@@ -992,14 +992,14 @@ export class Colony {
                         // upgrade the controller, if not in range move to it
                         // console.log(`Creep ${creep.name} is upgrading the controller`);
                         if (creep.upgradeController(target as StructureController) === ERR_NOT_IN_RANGE) {
-                            creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+                            creep.betterMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
                         }
                     }
                     else {
                     // filter the list of containers to ones with energy
                         const container = this.upgradeContainers.filter(s=>s.store[RESOURCE_ENERGY] > 0)[0];
                         if (creep.withdraw(container, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-                            creep.safeMoveTo(container, {visualizePathStyle: {stroke: '#ffffff'}});
+                            creep.betterMoveTo(container, {visualizePathStyle: {stroke: '#ffffff'}});
                         }
                     }
                 } else{
@@ -1010,7 +1010,7 @@ export class Colony {
                     }
                     // console.log(`Creep ${creep.name} is upgrading the controller`);
                     if (creep.upgradeController(target as StructureController) === ERR_NOT_IN_RANGE) {
-                        creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+                        creep.betterMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
                     }
                     break;
                 }
@@ -1027,7 +1027,7 @@ export class Colony {
                     break;
                 }
                 if (creep.build(target as ConstructionSite) === ERR_NOT_IN_RANGE) {
-                    creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+                    creep.betterMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
                 }
                 break;
             case "REPAIR":
@@ -1047,7 +1047,7 @@ export class Colony {
                     break;
                 }
                 if (creep.repair(target) === ERR_NOT_IN_RANGE) {
-                    creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+                    creep.betterMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
                 }
                 break;
             case 'HAUL':
@@ -1085,15 +1085,15 @@ export class Colony {
                         break;
                     }
                     if (creep.transfer(target as AnyStructure, task.resourceType) === ERR_NOT_IN_RANGE) {
-                        creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+                        creep.betterMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
                     }
                 } else {
                     if (creep.transfer(target as AnyStructure, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-                        creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+                        creep.betterMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
                     }
                     for(const resourceType of Object.keys(creep.store) as ResourceConstant[]){
                     if(creep.transfer(target as AnyStructure, resourceType) === ERR_NOT_IN_RANGE) {
-                        creep.safeMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+                        creep.betterMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
                     }
                 }
 
@@ -1118,7 +1118,7 @@ export class Colony {
                 if(sourceContainer == undefined) break;
 
                 if(!creep.pos.isEqualTo(sourceContainer.pos)) {
-                    creep.safeMoveTo(sourceContainer.pos);
+                    creep.betterMoveTo(sourceContainer.pos);
                 }else{
                     creep.harvest(target as Source);
                 }

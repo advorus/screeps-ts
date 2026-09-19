@@ -1,6 +1,3 @@
-import { ChildProcessWithoutNullStreams } from "child_process";
-import { Colony } from "colony/colony";
-
 export {};
 
 type CreepRole = 'worker';
@@ -9,6 +6,7 @@ declare global {
     interface Memory {
         empire: EmpireMemory;
         colonies: {[roomName:string]:ColonyMemory};
+        moveReservations?: {[creepName: string]: {from: {x:number,y:number,room:string}, to: {x:number,y:number,room:string}, tick: number}};
         tasks: {[id:string]:AnyTaskMemory};
         hostileRooms: {roomName:string, lastSeen:number}[];
         scoutedRooms: {[roomName:string]:ScoutedRoomMemory};
@@ -25,6 +23,7 @@ declare global {
         betterPathTargetRoom?: string;
         tickPathFound?: number;
         betterPath?: RoomPosition[];
+        queuedMove?: { x: number; y: number; room: string; tick: number };
         duoPartner?: string; //this is the name of the creep which is part of the duo pair
         duoId?: string;
     }
@@ -45,6 +44,7 @@ declare global {
         towerIds?: Id<StructureTower>[];
         lastStampRCL?: number;
         plannedConstructionSites?: {pos: RoomPosition, structureType: BuildableStructureConstant, priority: number}[];
+        moveIntents?: {[creepName: string]: {from: {x:number,y:number,room:string}, to: {x:number,y:number,room:string}, tick: number}};
         focusOnUpgrade?: boolean;
         visualisePlannedStructures?: boolean;
         creepColors?: Record<string, string>;

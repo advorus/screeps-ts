@@ -1,5 +1,7 @@
 import { ErrorMapper } from "utils/ErrorMapper";
 import { Empire } from "core/empire";
+import { clearMoveReservations, clearAllIntents } from "core/memory";
+import movementCoordinator from "core/movementCoordinator";
 
 import * as Profiler from "Profiler";
 
@@ -38,11 +40,26 @@ declare global {
 // This utility uses source maps to get the line numbers and file names of the original, TS source code
 
 module.exports.loop = function() { //ErrorMapper.wrapLoop(() => {
+  // Clear per-tick move reservations and intents so old intents don't persist across ticks
+  clearMoveReservations();
+  clearAllIntents();
   // console.log(`CPU used at start of loop is ${Game.cpu.getUsed()}`);
 
   const empire = new Empire();
   empire.init();
   empire.run();
+
+  // If `Memory.basicMovement` is set, skip colony coordinator and let creeps
+  // call their own `moveTo`/`betterMoveTo` directly (useful for debugging).
+  if ((Memory as any).basicMovement === true) {
+    if (Game.time % 50 === 0) console.log(`[main] basicMovement mode enabled; skipping movementCoordinator`);
+  } else {
+    // After colonies/creeps have published intents during their ticks,
+    // resolve and execute coordinated moves.
+    movementCoordinator.resolveAndExecuteAll();
+    movementCoordinator.flushMoveSummary();
+  }
+
   empire.post();
 
 

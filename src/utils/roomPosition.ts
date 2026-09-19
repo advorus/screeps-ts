@@ -35,7 +35,11 @@ RoomPosition.prototype.getFreeTiles = function(): RoomPosition[] {
             if (x === this.x && y === this.y) continue; // Skip the center tile
             const pos = new RoomPosition(x, y, this.roomName);
             if (pos.lookFor(LOOK_TERRAIN)[0] !== 'wall') {
-                freeTiles.push(pos);
+                // Treat tiles occupied by creeps as not free so harvesters
+                // won't target squares already occupied by another creep.
+                if (pos.lookFor(LOOK_CREEPS).length === 0) {
+                    freeTiles.push(pos);
+                }
             }
         }
     }

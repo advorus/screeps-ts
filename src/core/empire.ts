@@ -61,7 +61,7 @@ export class Empire {
             if(this.colonies.find(c => c.room.name === roomName)) continue;
 
         //create a claimer task for E2S19 if it is not in colonies and a claimer task doesn't exist
-            if(this.colonies.find(c => c.room.name !== roomName)) {
+            if(this.colonies.length > 1) {
                 if(!Object.values(Memory.tasks).find(t => t.type === 'CLAIM' && t.targetRoom === roomName)) {
                     // console.log(`Creating claim task for room ${roomName}`);
                     // console.log("testing");
@@ -519,6 +519,10 @@ export class Empire {
         // const energyOrders = Game.market.getAllOrders().filter(order => order.resourceType === RESOURCE_ENERGY);
         const sellOrders = Game.market.getAllOrders({type: ORDER_SELL, resourceType: RESOURCE_ENERGY});
         const buyOrders = Game.market.getAllOrders({type: ORDER_BUY, resourceType: RESOURCE_ENERGY});
+
+        // Check if there are any orders at all
+        if(buyOrders.length === 0 || sellOrders.length === 0) return;
+
         // get the order with the highest buy and sell prices
         const maxPriceBuyOrder = buyOrders.reduce((max, order) => order.price > max.price ? order : max, buyOrders[0]);
         const minPriceSellOrder = sellOrders.reduce((min, order) => order.price < min.price ? order : min, sellOrders[0]);
