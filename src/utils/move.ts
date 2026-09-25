@@ -1,4 +1,5 @@
 import { checkIfHostileRoom, addHostileRoom, getCostMatrixForRoom, getTaskMemory, reserveMove, getMoveReservation, getAllMoveReservations, publishIntent, getColonyIntents } from "core/memory";
+import trafficManager from "utils/trafficManager";
 // import { drawRoomOverview as drawRoomOverviewVisual } from "utils/movementVisuals";
 
 // Cost to apply to tiles occupied by stationary creeps (walkable but discouraged)
@@ -51,6 +52,11 @@ const USE_COLONY_MOVEMENT = true;
 
 export {};
 
+export interface Coord {
+    x: number;
+    y: number;
+}
+
 declare global {
     interface Creep {
         /**
@@ -64,6 +70,17 @@ declare global {
         flee(): ScreepsReturnCode | void;
         expressTilePreference(location: any, opts?: MoveToOpts): ScreepsReturnCode;
         complexBetterMoveTo(location: RoomPosition | RoomObject | {goals: RoomPosition[]}, opts?: MoveToOpts): ScreepsReturnCode;
+        registerMove: (target: DirectionConstant | RoomPosition | Coord) => void;
+        _intendedPackedCoord?: number;
+        _matchedPackedCoord?: number;
+        _cachedMoveOptions?: Coord[];
+
+        setWorkingArea: (target: RoomPosition, range: number) => void;
+        _workingPos: RoomPosition;
+        _workingRange: number;
+
+        setAsObstacle: (isObstacle: boolean) => void;
+        _isObstacle?: boolean;
     }
 }
 
@@ -268,11 +285,16 @@ Creep.prototype.betterMoveTo = function(location: RoomPosition | RoomObject, opt
     }
 
     if(!this.memory.betterPath || this.memory.betterPath.length === 0) return -1;
-    const nextStep = this.memory.betterPath[0];
+    let nextStep = this.memory.betterPath[0];
     if(nextStep){
+        if(nextStep.roomName == this.room.name && nextStep.x == this.pos.x && nextStep.y == this.pos.y) {
+            this.memory.betterPath.shift();
+        }
+        nextStep = this.memory.betterPath[0];
+
         const nextPos = new RoomPosition(nextStep.x, nextStep.y, nextStep.roomName);
-        const tile = this.expressTilePreference(nextPos, opts);
-        return tile;
+        trafficManager.registerMove(this, nextPos, 1)
+        return 0;
     }
     return -1;
 

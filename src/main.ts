@@ -2,8 +2,8 @@ import { ErrorMapper } from "utils/ErrorMapper";
 import { Empire } from "core/empire";
 import { clearMoveReservations, clearAllIntents } from "core/memory";
 import movementCoordinator from "core/movementCoordinator";
-
 import * as Profiler from "Profiler";
+import trafficManager from "utils/trafficManager";
 
 
 global.Profiler = Profiler.init();
@@ -56,6 +56,10 @@ module.exports.loop = function() { //ErrorMapper.wrapLoop(() => {
   } else {
     // After colonies/creeps have published intents during their ticks,
     // resolve and execute coordinated moves.
+    for (const roomName in Game.rooms) {
+      const room = Game.rooms[roomName]
+      trafficManager.run(room)
+    }
     movementCoordinator.resolveAndExecuteAll();
     movementCoordinator.flushMoveSummary();
   }

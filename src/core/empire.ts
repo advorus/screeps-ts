@@ -266,7 +266,7 @@ export class Empire {
                 }
             }
 
-            if(Game.time%1 == 0){
+            if(Game.time%200 == 0){
                 // check if the room has a scout task
                 if(getAllTaskMemory().filter(task => task.type === 'SCOUT' && task.colony === colony.room.name && task.role !== `visibility`).length <2){
                     //if not, create one using the nearest room to scout
@@ -720,6 +720,7 @@ export class Empire {
         }
 
         for(const remoteRoom of Object.keys(Memory.scoutedRooms)){
+            if(Object.keys(Memory.colonies).includes(remoteRoom)) continue; // skip if the remote room is already a colony
             // console.log(`Trying to allocate remote sources in ${remoteRoom}`);
             if(checkIfHostileRoom(remoteRoom)) continue; // cannot allocate hostile room sources
 
