@@ -684,7 +684,7 @@ export class Empire {
             visited.add(room);
             // console.log(`Visiting room ${room} at depth ${depth}`);
 
-            if(!(getHostileRooms().some(r=>r.roomName==room && r.lastSeen > Game.time - 3000))){ // && !colonyRooms.includes(room)){
+            if(!(getHostileRooms().some(r=>r.roomName==room && r.lastSeen > Game.time - this.rescoutThreshold))){ // && !colonyRooms.includes(room)){
                 let srMem = getScoutedRoomMemory(room);
                 if(srMem === undefined) {
                     // console.log(`Room ${room} has not been scouted yet, returning as room to scout`);
@@ -695,7 +695,7 @@ export class Empire {
                 }
             }
 
-            if(getHostileRooms().some(r=>r.roomName==room && r.lastSeen > Game.time - 3000)){// || Object.keys(this.colonies).includes(room)) {
+            if(getHostileRooms().some(r=>r.roomName==room && r.lastSeen > Game.time - this.rescoutThreshold)){// || Object.keys(this.colonies).includes(room)) {
                 // If we found a hostile room, we need to remember it
                 continue;
             }
