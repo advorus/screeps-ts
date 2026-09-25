@@ -291,7 +291,7 @@ Creep.prototype.betterMoveTo = function(location: RoomPosition | RoomObject, opt
             this.memory.betterPath.shift();
         }
         nextStep = this.memory.betterPath[0];
-
+        if(!nextStep) return -1;
         const nextPos = new RoomPosition(nextStep.x, nextStep.y, nextStep.roomName);
         trafficManager.registerMove(this, nextPos, 1)
         return 0;

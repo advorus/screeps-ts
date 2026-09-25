@@ -315,15 +315,15 @@ export class Empire {
         const perColonyCpu: { [roomName: string]: number } = {};
         for (const colony of this.colonies){
             // Run the colony logic, including task execution and record per-colony CPU
-            try {
-                const cpuBeforeColony = Game.cpu.getUsed();
-                colony.run();
-                const cpuAfterColony = Game.cpu.getUsed();
-                perColonyCpu[colony.room.name] = cpuAfterColony - cpuBeforeColony;
-            } catch (e) {
-                // ensure an error in one colony doesn't break the loop
-                perColonyCpu[colony.room.name] = 0;
-            }
+            // try {
+            //     const cpuBeforeColony = Game.cpu.getUsed();
+            colony.run();
+            //     const cpuAfterColony = Game.cpu.getUsed();
+            //     perColonyCpu[colony.room.name] = cpuAfterColony - cpuBeforeColony;
+            // } catch (e) {
+            //     // ensure an error in one colony doesn't break the loop
+            //     perColonyCpu[colony.room.name] = 0;
+            // }
         }
         const cpuAfterColonies = Game.cpu.getUsed();
 
@@ -455,7 +455,7 @@ export class Empire {
         const avgCpu = _.sum(this.memory.cpuUsage) / this.memory.cpuUsage.length;
         if (Game.time % 25 === 0) {
             console.log(`Empire: Average CPU usage over last 1000 ticks: ${avgCpu}`);
-            if(Game.time %500 == 0) {
+            if(Game.time %2000 == 0) {
                 if(avgCpu < 0.7 * Game.cpu.limit) {
                     this.turnOnSingleRemoteSource();
                 }
