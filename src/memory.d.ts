@@ -11,6 +11,7 @@ declare global {
         hostileRooms: {roomName:string, lastSeen:number}[];
         scoutedRooms: {[roomName:string]:ScoutedRoomMemory};
         profit: number;
+        basicMovement?: boolean;
     }
 
     interface CreepMemory {

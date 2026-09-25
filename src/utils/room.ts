@@ -1,7 +1,34 @@
 declare global {
     interface Room {
         findExits(): string[];
+        generateCostMatrix(): CostMatrix;
     }
+}
+
+Room.prototype.generateCostMatrix = function(): CostMatrix {
+    const cMatrix = new PathFinder.CostMatrix();
+    const terrain = this.getTerrain();
+    console.log(`Generating cost matrix for room ${this.name}, adjusting for terrain and structures`);
+    for (let x = 0; x < 50; x++) {
+        for (let y = 0; y < 50; y++) {
+            const tile = terrain.get(x, y);
+            if (tile === TERRAIN_MASK_SWAMP) {
+                cMatrix.set(x, y, 10);
+            } else if (tile === 0) { // plain
+                cMatrix.set(x, y, 2);
+            } else if (tile === TERRAIN_MASK_WALL) {
+                cMatrix.set(x, y, 255);
+            }
+        }
+    }
+    for (const structure of this.find(FIND_STRUCTURES)) {
+        if (structure.structureType === STRUCTURE_ROAD) {
+            cMatrix.set(structure.pos.x, structure.pos.y, 1);
+        } else if (structure.structureType !== STRUCTURE_CONTAINER && (structure.structureType !== STRUCTURE_RAMPART || !structure.my)) {
+            cMatrix.set(structure.pos.x, structure.pos.y, 255);
+        }
+    }
+    return cMatrix;
 }
 
 Room.prototype.findExits = function(): string[] {

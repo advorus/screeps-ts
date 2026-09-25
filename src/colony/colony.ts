@@ -1506,7 +1506,7 @@ export class Colony {
                 console.log(`Creep ${creep.name} in colony ${this.room.name} is starting SCOUT task, cpu: ${Game.cpu.getUsed()}`);
                 if(creep.room.name !== task.targetRoom || !creep.pos.isInsideRoom()) {
 
-                    creep.moveTo(new RoomPosition(25, 25, task.targetRoom??creep.room.name), {visualizePathStyle: {stroke: '#ffffff'}, reusePath:50});
+                    creep.moveTo(new RoomPosition(25, 25, task.targetRoom??creep.room.name), {visualizePathStyle: {stroke: '#ffffff'}, reusePath:50, maxOps: 1000});
                     console.log(`Creep ${creep.name} in colony ${this.room.name} and room ${creep.room.name} is moving towards target room ${task.targetRoom}, cpu: ${Game.cpu.getUsed()}`);
                 }
                 else {
@@ -1931,15 +1931,7 @@ export class Colony {
             };
         }
 
-        let cMatrix = new PathFinder.CostMatrix();
-        // create the costMatrix for the given room
-        Game.rooms[roomName].find(FIND_STRUCTURES).forEach(structure => {
-            if (structure.structureType === STRUCTURE_ROAD) {
-                cMatrix.set(structure.pos.x, structure.pos.y, 1);
-            } else if (structure.structureType !== STRUCTURE_CONTAINER && (structure.structureType !== STRUCTURE_RAMPART || !structure.my)) {
-                cMatrix.set(structure.pos.x, structure.pos.y, 255);
-            }
-        });
+        let cMatrix = Game.rooms[roomName].generateCostMatrix();
 
         let minerals = Game.rooms[roomName].find(FIND_MINERALS).map(mineral => mineral.id);
         let mineralType = null;

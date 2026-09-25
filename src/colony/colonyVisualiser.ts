@@ -49,6 +49,20 @@ export class ColonyVisualizer {
 
         let y = 5;
         for (const [role, count] of Object.entries(roleCounts)) {
+            if(role == "scout"){
+                // show a list of the rooms that the scouts are in
+                const scoutRooms = this.colony.creeps.filter(c => c.memory.role === 'scout').map(c => c.room.name);
+
+
+                visual.text(`${role}: ${count} - rooms: ${scoutRooms.join(', ')}`, 1, y,
+                {
+                    align: 'left',
+                    color: 'white',
+                    font: 'bold 10px Arial'
+                }
+                );
+                y++;
+            } else{
             visual.text(`${role}: ${count}`, 1, y,
                 {
                     align: 'left',
@@ -57,6 +71,7 @@ export class ColonyVisualizer {
                 }
             );
             y++;
+            }
         }
 
         //show the number of active tasks of each type in this colony
@@ -92,6 +107,17 @@ export class ColonyVisualizer {
 
         // show the counts of each type of task
         for (const [type, count] of Object.entries(taskCounts)) {
+            // show the rooms that need to be scouted for scout tasks
+            if (type == 'SCOUT'){
+                visual.text(`${type}: ${count} - (${tasks.filter(task => task.type === 'SCOUT').map(task => task.targetRoom).join(', ')})`, 1, y,
+                    {
+                        align: 'left',
+                        color: 'yellow',
+                        font: 'bold 10px Arial'
+                    }
+                );
+                y++;
+            } else {
             visual.text(`${type}: ${count}`, 1, y,
                 {
                     align: 'left',
@@ -100,6 +126,7 @@ export class ColonyVisualizer {
                 }
             );
             y++;
+            }
         }
 
         // visualize upgrade containers: circle, energy text and progress bar

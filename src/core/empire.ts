@@ -1,5 +1,5 @@
 import { Colony } from "colony/colony";
-import { removeHostileRoom, getEmpireMemory,getCreepMemory, getTaskMemory, addHostileRoom, getHostileRooms, getAllTaskMemory, getScoutedRoomMemory, checkIfHostileRoom } from "core/memory";
+import { getCostMatrixForRoom, removeHostileRoom, getEmpireMemory,getCreepMemory, getTaskMemory, addHostileRoom, getHostileRooms, getAllTaskMemory, getScoutedRoomMemory, checkIfHostileRoom } from "core/memory";
 import { TaskManager } from "core/taskManager";
 import { get } from "lodash";
 import { profile } from "Profiler";
@@ -31,6 +31,27 @@ export class Empire {
     }
 
     init() {
+
+        // for(const colony of this.colonies){
+        //     const costMatrix = getCostMatrixForRoom(colony.room.name);
+        //     if(costMatrix === undefined) continue;
+        //     if(colony.room.name!=="W29S16") continue;
+        //     console.log(`Cost matrix for room ${colony.room.name}:`);
+        //     for (let y = 0; y < 50; y++) {
+        //         let row = '';
+        //         for (let x = 0; x < 50; x++) {
+        //             // number of spaces depends on how many digits the cost value has
+        //             const v = costMatrix.get(x, y);
+        //             const s = String(v);
+        //             row += s;
+        //             const pad = Math.max(1, 4 - s.length);
+        //             row += ' '.repeat(pad);
+        //         }
+        //         console.log(row);
+        //     }
+
+        // }
+
         // Memory.hostileRooms = [];
         // Memory.tasks = {};
         this.memory.lastTick = Game.time;
@@ -245,7 +266,7 @@ export class Empire {
                 }
             }
 
-            if(Game.time%200 == 0){
+            if(Game.time%1 == 0){
                 // check if the room has a scout task
                 if(getAllTaskMemory().filter(task => task.type === 'SCOUT' && task.colony === colony.room.name && task.role !== `visibility`).length <2){
                     //if not, create one using the nearest room to scout
@@ -663,7 +684,7 @@ export class Empire {
             visited.add(room);
             // console.log(`Visiting room ${room} at depth ${depth}`);
 
-            if(!(getHostileRooms().some(r=>r.roomName==room && r.lastSeen > Game.time - 3000)) && !colonyRooms.includes(room)){
+            if(!(getHostileRooms().some(r=>r.roomName==room && r.lastSeen > Game.time - 3000))){ // && !colonyRooms.includes(room)){
                 let srMem = getScoutedRoomMemory(room);
                 if(srMem === undefined) {
                     // console.log(`Room ${room} has not been scouted yet, returning as room to scout`);
@@ -674,7 +695,7 @@ export class Empire {
                 }
             }
 
-            if(getHostileRooms().some(r=>r.roomName==room && r.lastSeen > Game.time - 3000) || Object.keys(this.colonies).includes(room)) {
+            if(getHostileRooms().some(r=>r.roomName==room && r.lastSeen > Game.time - 3000)){// || Object.keys(this.colonies).includes(room)) {
                 // If we found a hostile room, we need to remember it
                 continue;
             }
@@ -967,15 +988,7 @@ export class Empire {
             };
         }
 
-        let cMatrix = new PathFinder.CostMatrix();
-        // create the costMatrix for the given room
-        Game.rooms[roomName].find(FIND_STRUCTURES).forEach(structure => {
-            if (structure.structureType === STRUCTURE_ROAD) {
-                cMatrix.set(structure.pos.x, structure.pos.y, 1);
-            } else if (structure.structureType !== STRUCTURE_CONTAINER && (structure.structureType !== STRUCTURE_RAMPART || !structure.my)) {
-                cMatrix.set(structure.pos.x, structure.pos.y, 255);
-            }
-        });
+        let cMatrix = Game.rooms[roomName].generateCostMatrix();
 
         let minerals = Game.rooms[roomName].find(FIND_MINERALS).map(mineral => mineral.id);
         let mineralType = null;
