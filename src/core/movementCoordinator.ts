@@ -1,6 +1,8 @@
 import { getColonyIntents, getAllMoveReservations, getTaskMemory, getMoveReservation } from "core/memory";
 import { creepIsStationary } from "utils/move";
 import { isUpgradingAtController } from "utils/move";
+import { drawRoomOverview as drawRoomOverviewVisual } from "utils/movementVisuals";
+import {profile} from "Profiler";
 
 // Runtime toggles (set in Screeps console):
 // `Memory.movementVerbose = true` enables detailed movement logs.
@@ -133,155 +135,7 @@ function getCreepStationaryReason(creep: Creep): string | null {
     }
 }
 
-function drawRoomOverview(roomName: string, intents: {[creepName:string]: {from:{x:number,y:number,room:string}, to:{x:number,y:number,room:string}, tick:number}}){
-    try{
-        const vis = new RoomVisual(roomName);
-        // draw intents
-        for(const [name, intent] of Object.entries(intents)){
-            if(!intent) continue;
-            // If the creep has a cached `betterPath`, draw that path instead of a straight line
-            try {
-                const creep = Game.creeps[name];
-                if (creep && creep.memory && Array.isArray((creep.memory as any).betterPath) && (creep.memory as any).betterPath.length > 0) {
-                    // draw path segments from current position through planned steps
-                    let prevX = intent.from.x;
-                    let prevY = intent.from.y;
-                    const pathArr = (creep.memory as any).betterPath as Array<{x:number,y:number,roomName?:string}>;
-                    for (const step of pathArr) {
-                        vis.line(prevX, prevY, step.x, step.y, {color:'cyan', width:0.06, opacity:0.6});
-                        prevX = step.x;
-                        prevY = step.y;
-                    }
-                    // small marker at the final intended tile
-                    vis.circle(prevX, prevY, {radius:0.12, fill:'transparent', stroke:'cyan'});
-                } else {
-                    vis.line(intent.from.x, intent.from.y, intent.to.x, intent.to.y, {color:'white', width:0.06, opacity:0.6});
-                }
-                vis.text(name, intent.from.x, intent.from.y-0.3, {color:'white', font:0.35, align:'center'});
-            } catch(e) {
-                try { vis.line(intent.from.x, intent.from.y, intent.to.x, intent.to.y, {color:'white', width:0.06, opacity:0.6}); } catch(e) {}
-            }
-        }
-
-        // draw reservations
-        const reservations = getAllMoveReservations();
-        for(const [creepName, res] of Object.entries(reservations)){
-            if(!res || res.tick !== Game.time) continue;
-            if(res.from.room === roomName){
-                vis.circle(res.from.x, res.from.y, {radius:0.25, fill:'transparent', stroke:'orange'});
-            }
-            if(res.to.room === roomName){
-                vis.circle(res.to.x, res.to.y, {radius:0.25, fill:'transparent', stroke:'lime'});
-                try { vis.text(creepName, res.to.x, res.to.y+0.4, {color:'lime', font:0.28, align:'center'}); } catch(e) {}
-            }
-        }
-
-        // draw source adjacent free tiles and occupied tiles for the room
-        const room = Game.rooms[roomName];
-        if(room){
-            for(const source of room.find(FIND_SOURCES)){
-                const free = source.pos.getFreeTiles();
-                for(const p of free){
-                    vis.circle(p.x, p.y, {radius:0.18, fill:'transparent', stroke:'green', opacity:0.6});
-                }
-                // mark source center
-                vis.circle(source.pos.x, source.pos.y, {radius:0.25, fill:'transparent', stroke:'yellow'});
-            }
-
-            // mark occupied tiles and highlight stationary blockers
-            for(const creep of room.find(FIND_MY_CREEPS)){
-                const stationary = isStationaryCreepVisual(creep);
-                if (stationary) {
-                    vis.rect(creep.pos.x-0.5, creep.pos.y-0.5, 1, 1, {fill:'magenta', opacity:0.28});
-                    vis.circle(creep.pos.x, creep.pos.y, {radius:0.4, fill:'transparent', stroke:'magenta', opacity:0.9});
-                    vis.text('S', creep.pos.x, creep.pos.y+0.1, {color:'white', font:0.36, align:'center'});
-                } else {
-                    vis.rect(creep.pos.x-0.5, creep.pos.y-0.5, 1, 1, {fill:'red', opacity:0.12});
-                    if (STATIONARY_REASON_TAGS_ENABLED) {
-                        const reason = getCreepStationaryReason(creep);
-                        if (reason) {
-                            vis.text(reason, creep.pos.x, creep.pos.y - 0.9, {color:'yellow', font:0.25, align:'center'});
-                        }
-                    }
-                }
-            }
-        }
-
-            // draw legend in the top-right corner (smaller, to reduce overlap)
-            try {
-                const lx = 42.0; // right-side anchor
-                let ly = 0.6;
-                const lineH = 0.42;
-                const boxW = 7.8;
-                const boxH = 6.0;
-                // background
-                vis.rect(lx - 0.8, 0.2, boxW, boxH, {fill: '#000000', opacity: 0.38});
-                // layout constants for icon and text alignment
-                const iconX = lx + 0.08;
-                const textX = lx + 0.7;
-
-                // Planned path
-                vis.line(iconX, ly, iconX+0.5, ly, {color: 'cyan', width: 0.09});
-                vis.text('Planned path', textX, ly-0.15, {color: 'white', font: 0.28, align: 'left'});
-                ly += lineH;
-                // Intent straight
-                vis.line(iconX, ly, iconX+0.5, ly, {color: 'white', width: 0.09});
-                vis.text('Intent (straight)', textX, ly-0.15, {color: 'white', font: 0.28, align: 'left'});
-                ly += lineH;
-                // Reservation from
-                vis.circle(iconX+0.12, ly-0.05, {radius:0.15, fill:'transparent', stroke:'orange'});
-                vis.text('Reserved (from)', textX, ly-0.15, {color: 'white', font: 0.28, align: 'left'});
-                ly += lineH;
-                // Reservation to
-                vis.circle(iconX+0.12, ly-0.05, {radius:0.15, fill:'transparent', stroke:'lime'});
-                vis.text('Reserved (to)', textX, ly-0.15, {color: 'white', font: 0.28, align: 'left'});
-                ly += lineH;
-                // Free source tile
-                vis.circle(iconX+0.12, ly-0.05, {radius:0.12, fill:'transparent', stroke:'green'});
-                vis.text('Free source', textX, ly-0.15, {color: 'white', font: 0.28, align: 'left'});
-                ly += lineH;
-                // Source/controller
-                vis.circle(iconX+0.12, ly-0.05, {radius:0.15, fill:'transparent', stroke:'yellow'});
-                vis.text('Source/Controller', textX, ly-0.15, {color: 'white', font: 0.28, align: 'left'});
-                ly += lineH;
-                // Stationary blocker
-                vis.rect(iconX+0.0, ly-0.3, 0.36, 0.36, {fill:'magenta', opacity:0.28});
-                vis.circle(iconX+0.18, ly-0.13, {radius:0.18, fill:'transparent', stroke:'magenta'});
-                vis.text('Stationary blocker', textX, ly-0.15, {color: 'white', font: 0.28, align: 'left'});
-                ly += lineH;
-                // Non-stationary reason tag
-                vis.text('R', iconX, ly-0.15, {color:'yellow', font:0.28, align:'left'});
-                vis.text('Why not stationary', textX, ly-0.15, {color: 'white', font: 0.28, align: 'left'});
-                ly += lineH;
-                // Occupied tile
-                vis.rect(iconX+0.0, ly-0.3, 0.36, 0.36, {fill:'red', opacity:0.12});
-                vis.text('Occupied tile', textX, ly-0.15, {color: 'white', font: 0.28, align: 'left'});
-                ly += lineH + 0.08;
-
-                // Creep lifespan panel (fixed list)
-                vis.text('Creep lifespan (ticks)', iconX, ly-0.15, {color: 'white', font: 0.28, align: 'left'});
-                ly += lineH * 0.8;
-                try {
-                    const roomCreeps = room.find(FIND_MY_CREEPS).slice(0, 12);
-                    let i = 0;
-                    for (const cr of roomCreeps) {
-                        const ttl = typeof cr.ticksToLive === 'number' ? cr.ticksToLive : -1;
-                        const barX = iconX;
-                        const barY = ly + i * 0.32;
-                        // color by remaining life
-                        let color = '#66ff66';
-                        if (ttl < 300) color = '#ff6666';
-                        else if (ttl < 1000) color = '#ffcc66';
-                        vis.rect(barX, barY-0.18, 0.44, 0.28, {fill: color, opacity: 0.9});
-                        vis.text(`${cr.name}: ${ttl >= 0 ? ttl : '—'}`, barX + 0.52, barY-0.18, {color: 'white', font: 0.28, align: 'left'});
-                        i++;
-                    }
-                } catch(e) {}
-            } catch(e) {}
-    }catch(e){
-        // ignore vis errors
-    }
-}
+export const drawRoomOverview = drawRoomOverviewVisual;
 
 export function resolveAndExecuteAll(): void {
     if(!Memory.colonies) {
@@ -318,16 +172,242 @@ function logIntentSummary(label: string, creepName: string, intent?: {from?: {x:
 
 function resolveAndExecuteForRoom(roomName: string, intents: {[creepName:string]: {from:{x:number,y:number,room:string}, to:{x:number,y:number,room:string}, tick:number}}){
     if(!SIMPLE_VISUALS) drawRoomOverview(roomName, intents);
-    // Build quick maps
-    const byCreep = {...intents};
-    const occupiedMap: {[posKey:string]: string} = {};
-    for(const name of Object.keys(Game.creeps)){
-        const creep = Game.creeps[name];
-        if(!creep) continue;
-        if(creep.room.name !== roomName) continue;
-        const key = `${creep.pos.x},${creep.pos.y}`;
-        occupiedMap[key] = name;
-    }
+        // copy intents so we can mutate during resolution
+        const byCreep = {...intents};
+
+        // Helper: build occupied map for the room (key includes room)
+        function buildOccupiedMap(): {[posKey:string]: string} {
+            const map: {[posKey:string]: string} = {};
+            for(const name of Object.keys(Game.creeps)){
+                const creep = Game.creeps[name];
+                if(!creep) continue;
+                if(creep.room.name !== roomName) continue;
+                const key = `${creep.pos.x},${creep.pos.y},${creep.room.name}`;
+                map[key] = name;
+            }
+            return map;
+        }
+
+        // Helper: detect and resolve direct conflicts (multiple intents to same tile)
+        function resolveConflicts(byCreepLocal: {[creepName:string]: any}){
+            try {
+                const targetMap: {[key:string]: string[]} = {};
+                for (const [creepName, intent] of Object.entries(byCreepLocal)) {
+                    if (!intent || intent.tick !== Game.time) continue;
+                    const key = `${intent.to.x},${intent.to.y},${intent.to.room}`;
+                    if (!targetMap[key]) targetMap[key] = [];
+                    targetMap[key].push(creepName);
+                }
+                for (const [key, arr] of Object.entries(targetMap)) {
+                    if (arr.length <= 1) continue;
+                    arr.sort((a, b) => {
+                        const ca = Game.creeps[a];
+                        const cb = Game.creeps[b];
+                        const ma = ca && ca.body ? ca.body.filter(p => p.type === MOVE).length : 0;
+                        const mb = cb && cb.body ? cb.body.filter(p => p.type === MOVE).length : 0;
+                        if (ma !== mb) return mb - ma;
+                        return a.localeCompare(b);
+                    });
+                    const losers = arr.slice(1);
+                    try { mvLog(`[movementCoordinator] intent conflict at ${key}: winner=${arr[0]} losers=${losers.join(',')}`); } catch(e) {}
+                    for (const loser of losers) {
+                        const mover = Game.creeps[loser];
+                        if (mover && mover.memory) {
+                            mover.memory.betterPath = undefined;
+                            mover.memory.betterPathTargetX = undefined;
+                            mover.memory.betterPathTargetY = undefined;
+                            mover.memory.betterPathTargetRoom = undefined;
+                            mover.memory.tickPathFound = undefined;
+                        }
+                        delete byCreepLocal[loser];
+                    }
+                }
+            } catch (e) {}
+        }
+
+        // Helper: process previous tick queued moves for this room
+        function processQueuedMoves(){
+            for (const name of Object.keys(Game.creeps)) {
+                const creep = Game.creeps[name];
+                if (!creep) continue;
+                if (creep.room.name !== roomName) continue;
+                try {
+                    const qm = (creep.memory as any)?.queuedMove;
+                    if (!qm || typeof qm.tick !== 'number') continue;
+                    mvLog(`[movementCoordinator] queuedMove state for ${name}: qm.tick=${qm.tick}, now=${Game.time}, dest=${qm.x},${qm.y},${qm.room}, pos=${creep.pos.x},${creep.pos.y},${creep.pos.roomName}`);
+                    if (qm.tick === Game.time - 1) {
+                        if (creep.pos.x === qm.x && creep.pos.y === qm.y && creep.pos.roomName === qm.room) {
+                            try { console.log(`[movementCoordinator] queuedMove resolved for ${name}: arrived at ${qm.x},${qm.y},${qm.room}`); } catch(e) {}
+                            if (creep.memory && Array.isArray((creep.memory as any).betterPath) && (creep.memory as any).betterPath.length > 0) {
+                                const head = (creep.memory as any).betterPath[0];
+                                if (head && typeof head.x === 'number' && head.x === qm.x && head.y === qm.y && head.roomName === qm.room) {
+                                    (creep.memory as any).betterPath.shift();
+                                }
+                            }
+                            (creep.memory as any).queuedMove = undefined;
+                            try { (creep.memory as any).moveStuckCount = 0; } catch(e) {}
+                        } else {
+                            try {
+                                const moveParts = creep.body ? creep.body.filter(p => p.type === MOVE).length : 0;
+                                const fatigue = (creep as any).fatigue ?? 0;
+                                mvLog(`[movementCoordinator] pending queuedMove diagnostics for ${name}: MOVE_parts=${moveParts}, fatigue=${fatigue}`);
+                                try {
+                                    const prev = (creep.memory as any).moveStuckCount || 0;
+                                    (creep.memory as any).moveStuckCount = prev + 1;
+                                    mvLog(`[movementCoordinator] moveStuckCount for ${name} -> ${(creep.memory as any).moveStuckCount}`);
+                                    if ((creep.memory as any).moveStuckCount >= 2) {
+                                        try { console.log(`[movementCoordinator] ${name} appears stuck moving to ${qm.x},${qm.y},${qm.room}; forcing replan and temp-blocking destination`); } catch(e) {}
+                                        (creep.memory as any).queuedMove = undefined;
+                                        try { (creep.memory as any).forceBasicMovementUntil = Game.time + 3; } catch(e) {}
+                                        if (creep.memory) {
+                                            creep.memory.betterPath = undefined;
+                                            creep.memory.betterPathTargetX = undefined;
+                                            creep.memory.betterPathTargetY = undefined;
+                                            creep.memory.betterPathTargetRoom = undefined;
+                                            creep.memory.tickPathFound = undefined;
+                                        }
+                                        try { (creep.memory as any).tempBlockedTile = { x: qm.x, y: qm.y, roomName: qm.room, tick: Game.time + 2 }; } catch(e) {}
+                                        (creep.memory as any).moveStuckCount = 0;
+                                    }
+                                } catch(e) {}
+                            } catch(e) {}
+                        }
+                    } else if (qm.tick < Game.time - 1) {
+                        (creep.memory as any).queuedMove = undefined;
+                        if (creep.memory) {
+                            creep.memory.betterPath = undefined;
+                            creep.memory.betterPathTargetX = undefined;
+                            creep.memory.betterPathTargetY = undefined;
+                            creep.memory.betterPathTargetRoom = undefined;
+                            creep.memory.tickPathFound = undefined;
+                            try { console.log(`[movementCoordinator] cleared stale queuedMove for ${name} and forced replan`); } catch(e) {}
+                        }
+                    }
+                } catch (e) {}
+            }
+        }
+
+        // Helper: replan movers whose destination is occupied by a stationary creep
+        function replanForStationaryOccupants(byCreepLocal: {[creepName:string]: any}){
+            try {
+                const reservationsNow = getAllMoveReservations();
+                for (const [creepName, intent] of Object.entries(byCreepLocal)) {
+                    if (!intent || intent.tick !== Game.time) continue;
+                    const destRoom = Game.rooms[intent.to.room];
+                    if (!destRoom) continue;
+                    const occupants = destRoom.lookForAt(LOOK_CREEPS, intent.to.x, intent.to.y) as Creep[];
+                    if (occupants.length === 0) continue;
+                    const occ = occupants[0];
+                    const occIntent = getColonyIntents(roomName)[occ.name];
+                    if (occIntent && occIntent.tick === Game.time) continue;
+                    if (!creepIsStationary(occ, reservationsNow, roomName)) continue;
+
+                    const mover = Game.creeps[creepName];
+                    if (!mover) continue;
+                    if (mover.memory) {
+                        mover.memory.betterPath = undefined;
+                        mover.memory.betterPathTargetX = undefined;
+                        mover.memory.betterPathTargetY = undefined;
+                        mover.memory.betterPathTargetRoom = undefined;
+                        mover.memory.tickPathFound = undefined;
+                        try {
+                            const existing = getMoveReservation(mover.name);
+                            try { console.log(`[coordinator] forcing replan for ${mover.name} due to stationary occupant at ${intent.to.x},${intent.to.y}. existingReservation=${JSON.stringify(existing)}`); } catch(e) {}
+                        } catch (e) {}
+                        (mover.memory as any).tempBlockedTile = { x: intent.to.x, y: intent.to.y, roomName: intent.to.room, tick: Game.time };
+                    }
+                    let replanTarget: RoomPosition | null = null;
+                    try {
+                        if (mover.memory && typeof mover.memory.betterPathTargetX === 'number' && typeof mover.memory.betterPathTargetY === 'number' && typeof mover.memory.betterPathTargetRoom === 'string') {
+                            replanTarget = new RoomPosition(mover.memory.betterPathTargetX, mover.memory.betterPathTargetY, mover.memory.betterPathTargetRoom);
+                        }
+                    } catch (e) {}
+                    if (!replanTarget) replanTarget = new RoomPosition(intent.to.x, intent.to.y, intent.to.room);
+                    try { mover.betterMoveTo(replanTarget); } catch (e) {}
+                    delete byCreepLocal[creepName];
+                    try {
+                        const fresh = getColonyIntents(roomName)[creepName];
+                        if (fresh && fresh.tick === Game.time) byCreepLocal[creepName] = fresh;
+                    } catch (e) {}
+                }
+            } catch (e) {}
+        }
+
+        // Helper: resolve movement chains and swaps
+        function resolveChains(byCreepLocal: {[creepName:string]: any}, occupiedMap: {[posKey:string]: string}){
+            const processed: {[name:string]: boolean} = {};
+            for(const creepName of Object.keys(byCreepLocal)){
+                if(processed[creepName]) continue;
+                const intent = byCreepLocal[creepName];
+                if(!intent || intent.tick !== Game.time) { processed[creepName]=true; continue; }
+
+                logIntentSummary('considering intent', creepName, intent);
+                console.log('Processing creep:', creepName, 'intent:', JSON.stringify(intent));
+
+                const chain: string[] = [];
+                let cur = creepName;
+                const seen: Set<string> = new Set();
+                while(true){
+                    if(seen.has(cur)) break; // cycle
+                    seen.add(cur);
+                    chain.push(cur);
+                    const curIntent = byCreepLocal[cur];
+                    if(!curIntent || curIntent.tick !== Game.time) break;
+                    const targetKey = `${curIntent.to.x},${curIntent.to.y},${curIntent.to.room}`;
+                    const occupant = occupiedMap[targetKey];
+                    if(!occupant) { // chain ends in empty tile
+                        executeChain(chain.reverse(), byCreepLocal);
+                        for(const n of chain) processed[n]=true;
+                        break;
+                    } else {
+                        const occ = Game.creeps[occupant];
+                        const occIntent = byCreepLocal[occupant];
+                        const reservations = getAllMoveReservations();
+                        const isBlockedStationary = !!(occ && (!occIntent || occIntent.tick !== Game.time) && creepIsStationary(occ, reservations, roomName));
+                        if (isBlockedStationary) {
+                            const mover = Game.creeps[cur];
+                            if (mover && mover.memory) {
+                                mover.memory.betterPath = undefined;
+                                mover.memory.betterPathTargetX = undefined;
+                                mover.memory.betterPathTargetY = undefined;
+                                mover.memory.betterPathTargetRoom = undefined;
+                                mover.memory.tickPathFound = undefined;
+                            }
+                            for(const n of chain) processed[n]=true;
+                            break;
+                        }
+                        cur = occupant;
+                        if(processed[cur]){ // occupant already processed
+                            for(const n of chain) processed[n]=true;
+                            break;
+                        }
+                        const occIntent2 = byCreepLocal[cur];
+                        if(!occIntent2 || occIntent2.tick !== Game.time){
+                            for(const n of chain) processed[n]=true;
+                            break;
+                        }
+                        if(chain.length>=2 && cur === chain[0]){
+                            if(chain.length===2){
+                                executeSwap(chain[0], chain[1], byCreepLocal);
+                                processed[chain[0]] = processed[chain[1]] = true;
+                            } else {
+                                for(const n of chain) processed[n]=true;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Run engine steps in order
+        const occupiedMap = buildOccupiedMap();
+        resolveConflicts(byCreep);
+        processQueuedMoves();
+        replanForStationaryOccupants(byCreep);
+        // refresh occupied map after replans in case positions changed
+        const occupiedMap2 = buildOccupiedMap();
+        resolveChains(byCreep, occupiedMap2);
 
     // Diagnostic dump: per-intent details to help trace widespread stalls
     try {
@@ -551,30 +631,53 @@ function resolveAndExecuteForRoom(roomName: string, intents: {[creepName:string]
         const intent = byCreep[creepName];
         if(!intent || intent.tick !== Game.time) { processed[creepName]=true; continue; }
 
+        // Summary log for this intent (helps correlate later diagnostics).
         logIntentSummary('considering intent', creepName, intent);
+        console.log('Processing creep:', creepName, 'intent:', JSON.stringify(intent));
 
-        // Follow chain
+        // ----- Line-by-line explanation follows -----
+        // `chain` holds the sequence of creep names forming the movement chain
+        // (each creep wants to move into the next creep's tile). It is built
+        // starting from the current mover and extended by following occupants.
         const chain: string[] = [];
+        // `cur` is the current creep being examined while walking the chain.
         let cur = creepName;
+        // `seen` tracks names visited during chain traversal to detect cycles.
         const seen: Set<string> = new Set();
+        // Walk the chain until we hit a terminating condition.
         while(true){
+            // If we've already visited `cur`, we've found a cycle -> stop.
             if(seen.has(cur)) break; // cycle
+            // Mark `cur` as visited so future iterations can detect cycles.
             seen.add(cur);
+            // Append the current mover to the chain (far->near order while building).
             chain.push(cur);
+            // Grab the intent for the current mover; if none or it's stale, stop.
             const curIntent = byCreep[cur];
             if(!curIntent || curIntent.tick !== Game.time) break;
-            const targetKey = `${curIntent.to.x},${curIntent.to.y}`;
+            // Build the lookup key for the intended destination (include room).
+            const targetKey = `${curIntent.to.x},${curIntent.to.y},${curIntent.to.room}`;
+            // Find the occupant (if any) currently at that destination tile.
             const occupant = occupiedMap[targetKey];
+            // If no occupant, this chain terminates at an empty tile:
+            // execute the chain in reverse order so far (from far->near).
             if(!occupant) { // chain ends in empty tile
-                // execute backwards
+                // execute backwards: make farthest mover move first.
                 executeChain(chain.reverse(), byCreep);
+                // Mark all members of the chain as processed for this pass.
                 for(const n of chain) processed[n]=true;
                 break;
             } else {
+                // There is an occupant; inspect it to decide what to do next.
                 const occ = Game.creeps[occupant];
+                // The occupant's intent (if any) according to the coordinator.
                 const occIntent = byCreep[occupant];
+                // Current reservations snapshot to evaluate stationarity.
                 const reservations = getAllMoveReservations();
+                // Determine if the occupant is stationary and not intending to move.
                 const isBlockedStationary = !!(occ && (!occIntent || occIntent.tick !== Game.time) && creepIsStationary(occ, reservations, roomName));
+                // If the occupant is stationary (cannot/shouldn't move), force
+                // the mover to replan by clearing its cached path and stop.
                 if (isBlockedStationary) {
                     const mover = Game.creeps[cur];
                     if (mover && mover.memory) {
@@ -584,35 +687,37 @@ function resolveAndExecuteForRoom(roomName: string, intents: {[creepName:string]
                         mover.memory.betterPathTargetRoom = undefined;
                         mover.memory.tickPathFound = undefined;
                     }
+                    // Mark chain members processed so we don't try again this tick.
                     for(const n of chain) processed[n]=true;
                     break;
                 }
-                // continue chain
+                // Otherwise, continue following the chain by moving to the occupant.
                 cur = occupant;
+                // If the occupant was already handled earlier this pass, stop.
                 if(processed[cur]){ // occupant already processed
                     for(const n of chain) processed[n]=true;
                     break;
                 }
-                // if occupant has no intent, cannot progress
+                // If the occupant has no intent this tick, the chain cannot progress.
                 const occIntent2 = byCreep[cur];
                 if(!occIntent2 || occIntent2.tick !== Game.time){
                     for(const n of chain) processed[n]=true;
                     break;
                 }
-                // if this forms a swap of length 2, handle specially
+                // Detect a small cycle where the chain loops back to the start.
                 if(chain.length>=2 && cur === chain[0]){
-                    // cycle detected
+                    // cycle detected. If it's a pairwise swap (length 2), try swap.
                     if(chain.length===2){
-                        // pairwise swap A <-> B: execute both moves
+                        // pairwise swap A <-> B: attempt both moves in one tick.
                         executeSwap(chain[0], chain[1], byCreep);
                         processed[chain[0]] = processed[chain[1]] = true;
                     } else {
-                        // larger cycle: skip to avoid deadlocks
+                        // Larger cycle: skip executing to avoid deadlocks.
                         for(const n of chain) processed[n]=true;
                     }
                     break;
                 }
-                // otherwise loop continues
+                // Otherwise, loop continues and we follow the next occupant.
             }
         }
     }
@@ -801,4 +906,4 @@ function executeSwap(a: string, b: string, byCreep: {[creepName:string]: any}){
     }catch(e){}
 }
 
-export default { resolveAndExecuteAll, flushMoveSummary };
+export default { resolveAndExecuteAll, flushMoveSummary, drawRoomOverview };

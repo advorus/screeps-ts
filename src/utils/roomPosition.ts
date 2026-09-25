@@ -4,7 +4,7 @@ export {};
 
 declare global {
     interface RoomPosition {
-        getFreeTiles(): RoomPosition[];
+        getFreeTiles(ignoreCreeps?: boolean): RoomPosition[];
         findNearestOpenTile(maxRange?: number, minOpenAdjacent?: number, excludeConstructionSites?: boolean, excludeStructures?: boolean): RoomPosition | null;
         findNearestValidStampLocation(stamp: {dx:number, dy:number, structureType: BuildableStructureConstant}[]): RoomPosition | null;
         canPlaceStamp(stamp: Stamp, canOverlayExcRoads?: boolean) : boolean;
@@ -22,7 +22,7 @@ RoomPosition.prototype.isNearEdge = function(): boolean {
     return false;
 }
 
-RoomPosition.prototype.getFreeTiles = function(): RoomPosition[] {
+RoomPosition.prototype.getFreeTiles = function(ignoreCreeps: boolean = false): RoomPosition[] {
     /**
      * find surrounding tiles in a 3x3 grid which are not occupied by a wall, and are not the center tile
      */
@@ -37,11 +37,17 @@ RoomPosition.prototype.getFreeTiles = function(): RoomPosition[] {
             if (pos.lookFor(LOOK_TERRAIN)[0] !== 'wall') {
                 // Treat tiles occupied by creeps as not free so harvesters
                 // won't target squares already occupied by another creep.
-                if (pos.lookFor(LOOK_CREEPS).length === 0) {
+                if (ignoreCreeps){
                     freeTiles.push(pos);
+                }
+                else {
+                    if (pos.lookFor(LOOK_CREEPS).length === 0) {
+                        freeTiles.push(pos);
+                    }
                 }
             }
         }
+
     }
     return freeTiles;
 }
@@ -128,6 +134,19 @@ RoomPosition.prototype.canPlaceStamp = function(stamp: Stamp, canOverlayExcRoads
     for (const {dx, dy, structureType} of stamp) {
         const pos = new RoomPosition(this.x + dx, this.y + dy, this.roomName);
         if (pos.lookFor(LOOK_TERRAIN)[0] === "wall") return false; // Can't place on walls
+        // cannot be within 2 range of a source, mineral or the controller
+        const room = Game.rooms[this.roomName];
+        const sources = room.find(FIND_SOURCES);
+        for(const source of sources){
+            if(pos.getRangeTo(source) <= 2) return false;
+        }
+        const minerals = room.find(FIND_MINERALS);
+        for(const mineral of minerals){
+            if(pos.getRangeTo(mineral) <= 2) return false;
+        }
+        const controller = room.controller;
+        if(controller && pos.getRangeTo(controller) <= 2) return false;
+        if (pos.x <= 3 || pos.x >= 46 || pos.y <= 3 || pos.y >= 46) return false; // Can't place too close to the room edges
         // need to check whether the construction sites/structures match those in the stamp, rather than just checking for their existence
         const nonMatchingConstructionSites = pos.lookFor(LOOK_CONSTRUCTION_SITES).filter(s=>s.structureType!==structureType);
         const nonMatchingStructures = pos.lookFor(LOOK_STRUCTURES).filter(s=>s.structureType!==structureType);

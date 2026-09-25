@@ -8,7 +8,7 @@ import * as Profiler from "Profiler";
 
 global.Profiler = Profiler.init();
 // Memory.tasks = {};
-
+//
 declare global {
   /*
     Example types, expand on these or remove them and add your own.

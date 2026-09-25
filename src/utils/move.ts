@@ -1,7 +1,15 @@
-import { checkIfHostileRoom, getCostMatrixForRoom, getTaskMemory, reserveMove, getMoveReservation, getAllMoveReservations, publishIntent, getColonyIntents } from "core/memory";
+import { checkIfHostileRoom, addHostileRoom, getCostMatrixForRoom, getTaskMemory, reserveMove, getMoveReservation, getAllMoveReservations, publishIntent, getColonyIntents } from "core/memory";
+import { drawRoomOverview as drawRoomOverviewVisual } from "utils/movementVisuals";
 
 // Cost to apply to tiles occupied by stationary creeps (walkable but discouraged)
 const OCCUPIED_STATIC_COST = 50;
+
+const BTM_LOG = !!((Memory as any).movementVerbose === false);
+
+function btmLog(...args: any[]) {
+    if (!BTM_LOG) return;
+    try { console.log(...args); } catch (e) {}
+}
 
 // A creep is considered to be actively upgrading when it is in the real upgrade
 // work range of the controller and carrying energy, regardless of whether it is
@@ -54,6 +62,7 @@ declare global {
         safeMoveTo(target: RoomPosition | RoomObject, opts?: MoveToOpts): ScreepsReturnCode;
         betterMoveTo(location: RoomPosition | RoomObject | {goals: RoomPosition[]}, opts?: MoveToOpts): ScreepsReturnCode;
         flee(): ScreepsReturnCode | void;
+        expressTilePreference(location: any, opts?: MoveToOpts): ScreepsReturnCode;
     }
 }
 
@@ -91,7 +100,7 @@ Creep.prototype.safeMoveTo = function(target: RoomPosition | RoomObject, opts?: 
     opts.costCallback = (roomName,costMatrix) => {
         // console.log(`checking room ${roomName}`)
         if(roomName!==targetPos.roomName){
-            // console.log(`Room ${roomName} is not the target room ${targetPos.roomName} - checking if hostile`);
+            // console.log(`Room ${roomName} is not the target room ${targetPos.roomName} - checking if hostile:`);
             if(checkIfHostileRoom(roomName)){
                 // console.log(`Room ${roomName} is hostile - setting all tiles to 255`);
                 for(let i=0;i<50;i++){
@@ -139,6 +148,7 @@ Creep.prototype.safeMoveTo = function(target: RoomPosition | RoomObject, opts?: 
     });
     if (hostiles.length > 0&&this.memory.role!==`duo_attacker`&&this.memory.role!==`duo_healer`&&this.memory.role!==`worker`) {
         this.say('⚠️ Hostile!');
+        try { addHostileRoom(this.room.name); } catch(e) {}
         this.flee();
     }
     let targetRoom = undefined;
@@ -200,6 +210,14 @@ Creep.prototype.safeMoveTo = function(target: RoomPosition | RoomObject, opts?: 
     return this.betterMoveTo(pos, opts);
 }
 
+Creep.prototype.expressTilePreference = function(location: any, opts?: MoveToOpts): ScreepsReturnCode {
+    // this is used by all creeps to express which tile they want to be on in the next tick.
+    // if they do not call this function, then it is assumed that they have no preference for the next tick.
+    // this is used to influence the movement coordinator's decisions about moving creeps.
+
+    return OK
+}
+
 Creep.prototype.betterMoveTo = function(location: any, opts?: MoveToOpts): ScreepsReturnCode {
     //avoids going into hostile rooms and can be cached for a certain number of ticks
 
@@ -209,14 +227,14 @@ Creep.prototype.betterMoveTo = function(location: any, opts?: MoveToOpts): Scree
         // Per-creep override (set by coordinator when a creep appears stuck):
         const fbUntil = (this.memory as any)?.forceBasicMovementUntil;
         if (typeof fbUntil === 'number' && fbUntil >= Game.time) {
-            try { console.log(`[betterMoveTo] ${this.name} forceBasicMovementUntil=${fbUntil} active - delegating to moveTo`); } catch(e) {}
+            try { btmLog(`[betterMoveTo] ${this.name} forceBasicMovementUntil=${fbUntil} active - delegating to moveTo`); } catch(e) {}
             const targetPosFb = location instanceof RoomObject ? location.pos : (location.pos || location);
-            return this.moveTo(targetPosFb as RoomPosition);
+            return this.moveTo(targetPosFb as RoomPosition, opts);
         }
         if ((Memory as any).basicMovement === true) {
-            try { console.log(`[betterMoveTo] ${this.name} basicMovement enabled - delegating to moveTo`); } catch(e) {}
+            try { btmLog(`[betterMoveTo] ${this.name} basicMovement enabled - delegating to moveTo, with opts ${JSON.stringify(opts)}`); } catch(e) {}
             const targetPos = location instanceof RoomObject ? location.pos : (location.pos || location);
-            return this.moveTo(targetPos as RoomPosition);
+            return this.moveTo(targetPos as RoomPosition, opts);
         }
     } catch (e) {}
 
@@ -1201,7 +1219,13 @@ export function creepIsStationary(creep: Creep, reservations: {[creepName:string
             || Object.values(intents || {}).find(i => i.tick === Game.time && i.to.room === roomName && i.to.x === creep.pos.x && i.to.y === creep.pos.y);
         const hasPlanned = !!(creep.memory && Array.isArray((creep.memory as any).betterPath) && (creep.memory as any).betterPath.length > 0);
         const hasOutgoingIntent = Object.values(intents || {}).some(i => i.tick === Game.time && i.from.room === roomName && i.from.x === creep.pos.x && i.from.y === creep.pos.y);
-        const hasOutgoingReservation = !!(resOcc !== undefined && resOcc.tick === Game.time && resOcc.from.room === roomName && resOcc.from.x === creep.pos.x && resOcc.from.y === creep.pos.y);
+        // Treat a reservation as an outgoing move only when it actually reserves
+        // a different destination tile than the current tile. This avoids
+        // classifying creeps as 'moving' when a reservation simply mirrors the
+        // current position or is otherwise non-moving.
+        const hasOutgoingReservation = !!(resOcc !== undefined && resOcc.tick === Game.time && resOcc.from.room === roomName && resOcc.from.x === creep.pos.x && resOcc.from.y === creep.pos.y && (
+            resOcc.to.room !== resOcc.from.room || resOcc.to.x !== resOcc.from.x || resOcc.to.y !== resOcc.from.y
+        ));
         const taskType = creep.memory && creep.memory.taskId ? (() => { try { const task = getTaskMemory(creep.memory.taskId); return task && typeof (task as any).type === 'string' ? (task as any).type : undefined; } catch (e) { return undefined; } })() : undefined;
         const isStationaryWork = !!(
             isUpgradingAtController(creep) ||
@@ -1253,6 +1277,16 @@ export function creepIsStationary(creep: Creep, reservations: {[creepName:string
         return false;
     } catch(e) {
         return false;
+    }
+}
+
+// Expose a helper so visuals/pathfinding can be invoked without running the coordinator
+export function visualizeRoomMovement(roomName: string): void {
+    try {
+        const intents = getColonyIntents(roomName) || {};
+        drawRoomOverviewVisual(roomName, intents as any);
+    } catch (e) {
+        // swallow errors to avoid breaking runtime
     }
 }
 

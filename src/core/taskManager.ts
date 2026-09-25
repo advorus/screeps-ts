@@ -45,8 +45,59 @@ export class TaskManager {
     }
 
     static reprioritiseTasks(empire: EmpireLike): void {
+        // Every 100 ticks, boost build priority for source-adjacent container sites
+        if (Game.time % 100 === 0) {
+            this.prioritiseSourceContainerBuildTasks(empire);
+            this.prioritiseStorageContainerBuildTasks(empire);
+        }
         this.prioritiseBuildTasks(empire);
         this.prioritiseWallRepairTasks(empire);
+    }
+
+    static prioritiseStorageContainerBuildTasks(empire: EmpireLike): void {
+        if ("colonies" in empire) {
+            for (const colony of empire.colonies) {
+                this.prioritiseStorageContainerBuildTasks(colony as any);
+            }
+            return;
+        }
+
+        const colony = empire as ColonyLike;
+        const pendingBuildTasks = getAllTaskMemory().filter(s => s.type === 'BUILD' && s.colony === colony.room.name && s.status === 'PENDING');
+        for (const task of pendingBuildTasks) {
+            if (!task.targetId) continue;
+            const site = Game.getObjectById(task.targetId) as ConstructionSite | null;
+            if (!site) continue;
+            if (site.structureType !== STRUCTURE_CONTAINER) continue;
+
+            if (colony.memory.storageId === undefined && site.pos.getRangeTo(colony.spawns[0].pos) < 3){
+                const boosted = TaskManager.getBuildPriority(site) + 3;
+                task.priority = Math.max(task.priority || 0, boosted);
+            }
+        }
+    }
+
+    static prioritiseSourceContainerBuildTasks(empire: EmpireLike): void {
+        if ("colonies" in empire) {
+            for (const colony of empire.colonies) {
+                this.prioritiseSourceContainerBuildTasks(colony as any);
+            }
+            return;
+        }
+
+        const colony = empire as ColonyLike;
+        const pendingBuildTasks = getAllTaskMemory().filter(s => s.type === 'BUILD' && s.colony === colony.room.name && s.status === 'PENDING');
+        for (const task of pendingBuildTasks) {
+            if (!task.targetId) continue;
+            const site = Game.getObjectById(task.targetId) as ConstructionSite | null;
+            if (!site) continue;
+            if (site.structureType !== STRUCTURE_CONTAINER) continue;
+            const nearbySources = site.pos.findInRange(FIND_SOURCES, 1);
+            if (nearbySources && nearbySources.length > 0) {
+                const boosted = TaskManager.getBuildPriority(site) + 3;
+                task.priority = Math.max(task.priority || 0, boosted);
+            }
+        }
     }
 
     static prioritiseWallRepairTasks(focus: EmpireLike | ColonyLike){
@@ -220,6 +271,11 @@ export class TaskManager {
                     }
                 }
 
+                if (task.type === "HARASS_TOWER" && creep.memory.role !== "harasser") continue;
+                if (creep.memory.role === "harasser" && task.type !== "HARASS_TOWER") continue;
+                if (task.type === "DISMANTLE" && creep.memory.role !== "dismantler") continue;
+                if(creep.memory.role === "dismantler" && task.type !== "DISMANTLE") continue;
+
                 if (task.type === 'HARVEST' && creep.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
                         continue;
                 }
@@ -317,21 +373,31 @@ export class TaskManager {
                     }
                 }
 
-                // check if there are haulers in the room - if there are then the only type of creep to be able to pickup from sources is haulers
-                const haulersInRoom = creep.room.find(FIND_MY_CREEPS, {
-                    filter: c=>c.memory.role===`hauler`
-                });
+                // if the creep is a hauler, there are no haul tasks, there is no storage in the colony
+                // and the task is of type pickup, then continue
+                if (creep.memory.role === `hauler` &&
+                    Memory.colonies[task.colony as string]?.storageId === undefined &&
+                    task.type === `PICKUP` &&
+                    getAllTaskMemory().some(t => t.type === `HAUL` && t.colony === task.colony && t.status === `PENDING`) === false
+                ) {
+                    continue;
+                }
 
-                if(haulersInRoom.length>0){
-                    // console.log(`found haulers in room ${creep.room.name}`)
-                    if(task.type === `PICKUP` && Game.getObjectById(task.targetId) instanceof StructureContainer){
-                        // console.log(`checking if ${creep.name} is a hauler, as ${task.id} can only be performed by a hauler as the source is a source`)
-                        if(creep.memory.role !== `hauler`) {
+                // check if there are haulers in the room - if there are then the only type of creep to be able to pickup from sources is haulers
+                // Prevent non-hauler roles from being assigned PICKUP tasks targeting source/mineral containers.
+                // Allow non-haulers only if the target container is the colony's registered storage container.
+                if((Memory.colonies[task.colony as string]?.storageId !== undefined) || (getAllTaskMemory().some(t => t.type === `HAUL` && t.colony === task.colony && t.status === `PENDING`))){
+                    if (task.type === `PICKUP` && Game.getObjectById(task.targetId) instanceof StructureContainer) {
+                        const container = Game.getObjectById(task.targetId) as StructureContainer;
+
+                        const colonyName = task.colony as string | undefined;
+                        const colonyMem = colonyName && Memory.colonies ? Memory.colonies[colonyName] : undefined;
+                        const isColonyStorage = !!(colonyMem && colonyMem.storageId && colonyMem.storageId === container.id);
+                        if (creep.memory.role !== `hauler` && !isColonyStorage) {
                             continue;
                         }
                     }
                 }
-
                 // Lightweight check-and-set to avoid races where multiple
                 // creeps attempt to claim the same task in the same tick.
                 if (!task.assignedCreep) {
@@ -399,6 +465,7 @@ export class TaskManager {
             // console.log(focus.dismantleTargets);
 
             for(const colony of focus.colonies) {
+                console.log(`Creating tasks for colony ${colony.room.name}, cpu usage: ${Game.cpu.getUsed()}`);
                 this.createColonyTasks(colony);
             }
             //create dismantle tasks and assign them to the nearest room
@@ -532,11 +599,25 @@ export class TaskManager {
         for (const remoteSource of colony.memory.remoteSources) {
             if (!remoteSource.active) continue;
 
+            // If the remote room is not visible, schedule a scout to re-scan it.
             if(!Object.keys(Game.rooms).includes(remoteSource.room)) {
-                console.log(`Remote room ${remoteSource.room} is not visible`);
-                // create a scout task to get visibility of the room
-                if(this.checkIfExistingTask(`SCOUT`, colony.spawns[0], colony.room.name)) continue;
-                this.createTask(`SCOUT`, colony.spawns[0], colony.room.name, 0, `visibility`, remoteSource.room);
+                // Only create a visibility scout if one doesn't already exist for this room.
+                if(!this.checkIfExistingTask(`SCOUT`, colony.spawns[0], colony.room.name)){
+                    this.createTask(`SCOUT`, colony.spawns[0], colony.room.name, 0, `visibility`, remoteSource.room);
+                }
+                continue;
+            }
+
+            // If the room is visible but is reserved, mark the remote source inactive and
+            // ensure we will re-scout the room in the future to pick it up again.
+            const srMem = getScoutedRoomMemory(remoteSource.room);
+            if(srMem && srMem.controller && srMem.controller.reserved){
+                // mark inactive so we won't attempt remote mining here
+                remoteSource.active = false;
+                // schedule a visibility scout to re-evaluate the room later if not already scheduled
+                if(!this.checkIfExistingTask(`SCOUT`, colony.spawns[0], colony.room.name)){
+                    this.createTask(`SCOUT`, colony.spawns[0], colony.room.name, 0, `visibility`, remoteSource.room);
+                }
                 continue;
             }
 
@@ -604,6 +685,14 @@ export class TaskManager {
             if (existingBuildTasks.length >= 1) continue; // Skip if there's already a build task for this site
 
             let priority = TaskManager.getBuildPriority(site);
+            // Boost priority for containers that are being built next to sources
+            if (site.structureType === STRUCTURE_CONTAINER) {
+                const nearbySources = site.pos.findInRange(FIND_SOURCES, 1);
+                if (nearbySources && nearbySources.length > 0) {
+                    // source containers are important for mining throughput; increase priority
+                    priority += 3;
+                }
+            }
             // Check if there is an existing build task of the same type in the colony
             const existingBuildTaskOfType = Object.values(Memory.tasks).find(task => {
                 if (!task.targetId) return false;
@@ -628,7 +717,33 @@ export class TaskManager {
             const container = source.pos.findInRange(FIND_STRUCTURES, 1, {
                 filter: (structure) => structure.structureType === STRUCTURE_CONTAINER
             });
-            if (container.length > 0) {
+            if (true) { // (container.length > 0) {
+                // get the number of work parts assigned to this source
+                // if it is less than 5, and the number of creep assigned to this source is less than
+                // the number of free tiles around the source, generate a mining task
+
+                // get a list of tasks with this source as the target
+                const matchingMineTasks = Object.values(Memory.tasks).filter(task =>
+                    task.type === `MINE` &&
+                    task.targetId === source.id &&
+                    task.colony === focus.room.name &&
+                    task.status !== `DONE`
+                );
+                if (matchingMineTasks.length >= source.pos.getFreeTiles(true).length) {
+                    this.createPickupTasks(focus);
+                    continue;
+                }
+                const matchingMineTaskIds = matchingMineTasks.map(task => task.id as string);
+                const minerCreepsAssigned = Object.values(Game.creeps).filter(c =>
+                    c.memory.taskId && matchingMineTaskIds.includes(c.memory.taskId) && ((c.ticksToLive && c.ticksToLive > 100)||c.ticksToLive===undefined)
+                );
+                const workPartsAssigned = minerCreepsAssigned.reduce((sum, creep) => sum + (creep.body.filter(part => part.type === WORK).length || 0), 0);
+                const freeTilesAroundSource = source.pos.getFreeTiles(true).length;
+                const pendingMatchingMineTasks = matchingMineTasks.filter(task => task.status === `PENDING`);
+                if(workPartsAssigned < 5 && matchingMineTasks.length < freeTilesAroundSource && pendingMatchingMineTasks.length === 0) {
+                    TaskManager.createTask(`MINE`, source, focus.room.name);
+                }
+
                 // If there is a container, create a mining task
                 if(!this.checkIfExistingTask(`MINE`, source, focus.room.name)) {
                     TaskManager.createTask(`MINE`, source, focus.room.name);
@@ -636,15 +751,17 @@ export class TaskManager {
                 // need to create pickup tasks
                 this.createPickupTasks(focus);
             }
-            else {
-                // If there is no container, create harvest tasks for all free tiles
-                for (const tile of source.pos.getFreeTiles()) {
-                    //check if there is a mathing task already
-                    if(this.checkForExistingTasks(`HARVEST`, source, focus.room.name)<source.pos.getFreeTiles().length) {
-                        TaskManager.createTask(`HARVEST`, source, focus.room.name);
-                    }
-                }
-            }
+
+
+            // else {
+            //     // If there is no container, create harvest tasks for all free tiles
+            //     for (const tile of source.pos.getFreeTiles()) {
+            //         //check if there is a mathing task already
+            //         if(this.checkForExistingTasks(`HARVEST`, source, focus.room.name)<source.pos.getFreeTiles().length) {
+            //             TaskManager.createTask(`HARVEST`, source, focus.room.name);
+            //         }
+            //     }
+            // }
         }
     }
 
@@ -815,6 +932,8 @@ export class TaskManager {
             if ("sourceContainers" in focus) {
                 // check if there is anything to pickup from source containers
                 focus.sourceContainers.forEach(container => {
+                    // If this container has been chosen as the colony's central storage, skip creating a source pickup task for it
+                    if (focus.memory && focus.memory.storageId && container.id === focus.memory.storageId) return;
                     if (container.store[RESOURCE_ENERGY] > 0) {
                         if (!this.checkIfExistingTask(`PICKUP`, container, focus.room.name)) {
                             TaskManager.createTask(`PICKUP`, container, focus.room.name, 1, undefined, undefined, RESOURCE_ENERGY);
@@ -824,7 +943,7 @@ export class TaskManager {
             }
             //check for any energy dropped on the floor
             const droppedResources = focus.room.find(FIND_DROPPED_RESOURCES);
-            // console.log(`Found ${droppedResources.length} dropped resources`);
+            // console.log(`[${focus.room.name}] Found ${droppedResources.length} dropped resources`);
             droppedResources.forEach(resource => {
                 if (resource.resourceType === RESOURCE_ENERGY) {
                     // console.log(`Found ${resource.amount} energy dropped at ${resource.pos}`);

@@ -33,7 +33,10 @@ export default {
     clear({ targets: ["dist"] }),
     resolve({ rootDir: "src" }),
     commonjs(),
-    typescript({tsconfig: "./tsconfig.json"}),
+    typescript({
+      tsconfig: "./tsconfig.json",
+      include: ["src/**/*.ts"]
+    }),
     screeps({config: cfg, dryRun: cfg == null})
   ]
 }

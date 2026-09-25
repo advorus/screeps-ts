@@ -33,12 +33,13 @@ declare global {
         energyHistory?: number[];
         tasks?: Record<string, any>;
         lastSeen?: number;
+        cpuHistory?: { t: number; total: number; assign: number; towers: number; visualizer: number }[];
         spawnIds?: Id<StructureSpawn>[];
         extensionIds?: Id<StructureExtension>[];
         sourceIds?: Id<Source>[];
         fillerContainerIds?: Id<StructureContainer>[];
         upgradeContainerIds?: Id<StructureContainer>[];
-        storageId?: Id<StructureStorage>;
+        storageId?: Id<StructureStorage> | Id<StructureContainer>;
         creepRoleCounts?: {[role:string]: number};
         taskQueue: string[];
         towerIds?: Id<StructureTower>[];
@@ -63,6 +64,16 @@ declare global {
         stats?: Record<string, any>;
         lastTick?: number;
         cpuUsage?: number[];
+        lastCpuBreakdown?: {
+            total: number;
+            createTasks: number;
+            reprioritise: number;
+            spawningDecisions: number;
+            assignTasks: number;
+            colonies: number;
+            market: number;
+            colonyPerRoom?: { [roomName: string]: number };
+        };
     }
 
     interface WorkerMemory extends CreepMemory {
@@ -90,7 +101,7 @@ declare global {
 
     interface TaskMemory {
         id?: string;
-        type?: 'HARVEST' | "HAUL" | "BUILD" | "UPGRADE" | "MINE" | "SCOUT" | "PICKUP" | "FILL" | "REPAIR" | "CLAIM" | "WALLREPAIR" | "DISMANTLE" | "REMOTE_MINING" | "REMOTE_PICKUP"| `DUO_ATTACK` | `DUO_DEFEND`;
+        type?: 'HARVEST' | "HAUL" | "BUILD" | "UPGRADE" | "MINE" | "SCOUT" | "PICKUP" | "FILL" | "REPAIR" | "CLAIM" | "WALLREPAIR" | "DISMANTLE" | "REMOTE_MINING" | "REMOTE_PICKUP"| `DUO_ATTACK` | `DUO_DEFEND` | `HARASS_TOWER`;
         targetId?: Id<any>;
         assignedCreep?: string;
         status?: "PENDING" | "IN_PROGRESS" | "DONE";

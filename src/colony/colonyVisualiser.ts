@@ -16,7 +16,7 @@ export class ColonyVisualizer {
 
     run() {
         const visual = new RoomVisual(this.colony.room.name);
-        visual.text(`Colony: ${this.colony.room.name}, RCL: ${this.colony.room.controller?.level}`, 1, 1,
+        visual.text(`Colony: ${this.colony.room.name}, RCL: ${this.colony.room.controller?.level}, CPU bucket: ${Game.cpu.bucket}`, 1, 1,
             {
                 align: 'left',
                 color: 'white',
@@ -26,6 +26,13 @@ export class ColonyVisualizer {
         // show energy available/energy capacity
         visual.text(`Energy: ${this.colony.room.energyAvailable}/${this.colony.room.energyCapacityAvailable}`, 1, 3,
             {
+                align: 'left',
+                color: 'white',
+                font: 'bold 10px Arial'
+            }
+        );
+        visual.text("Progress to upgrade: " + (this.colony.room.controller?.progress ?? 0) + "/" + (this.colony.room.controller?.progressTotal ?? 0), 1, 4,
+         {
                 align: 'left',
                 color: 'white',
                 font: 'bold 10px Arial'
@@ -95,9 +102,33 @@ export class ColonyVisualizer {
             y++;
         }
 
-        //circle the upgrade container in orange
+        // visualize upgrade containers: circle, energy text and progress bar
         for(const container of this.colony.upgradeContainers) {
-            visual.circle(container.pos, {radius: 0.5, fill: 'orange', opacity: 0.1});
+            const energy = container.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0;
+            const capacity = container.store.getCapacity(RESOURCE_ENERGY) ?? 0;
+            const pct = capacity > 0 ? Math.min(1, energy / capacity) : 0;
+            const strokeColor = pct > 0.75 ? 'green' : pct > 0.25 ? 'yellow' : 'red';
+
+            // subtle fill + colored outline
+            visual.circle(container.pos, {radius: 0.6, fill: 'orange', opacity: 0.06});
+            visual.circle(container.pos, {radius: 0.7, stroke: strokeColor});
+
+            // energy text above the container
+            visual.text(`${energy}/${capacity}`, container.pos.x, container.pos.y - 0.9, {
+                align: 'center',
+                color: 'white',
+                font: 'bold 8px Arial'
+            });
+
+            // small progress bar above container
+            const barWidth = 1.0;
+            const barHeight = 0.18;
+            const barX = container.pos.x - barWidth / 2;
+            const barY = container.pos.y - 0.6;
+            // background
+            visual.rect(barX, barY, barWidth, barHeight, {fill: 'black', opacity: 0.5});
+            // fill
+            visual.rect(barX, barY, barWidth * pct, barHeight, {fill: strokeColor, opacity: 0.9});
         }
 
         //circle the filler containers in blue
@@ -109,6 +140,32 @@ export class ColonyVisualizer {
         for(const container of this.colony.sourceContainers) {
             visual.circle(container.pos, {radius: 0.5, fill: 'green', opacity: 0.1});
         }
+
+        // visualize central storage (StructureStorage or central container) if available
+        try {
+            const storage = this.colony.storage as unknown as StructureStorage | StructureContainer | undefined;
+            if (storage) {
+                const pos = storage.pos;
+                const energy = (storage.store && storage.store.getUsedCapacity) ? storage.store.getUsedCapacity(RESOURCE_ENERGY) : ((storage as any).store ? (storage as any).store[RESOURCE_ENERGY] ?? 0 : 0);
+                const capacity = (storage.store && storage.store.getCapacity)
+                    ? storage.store.getCapacity(RESOURCE_ENERGY)
+                    : ((storage as any).store ? (Object.values((storage as any).store) as number[]).reduce((a, b) => a + (b || 0), 0) : 0);
+                const pct = capacity > 0 ? Math.min(1, energy / capacity) : 0;
+                const strokeColor = pct > 0.75 ? 'green' : pct > 0.25 ? 'yellow' : 'red';
+
+                visual.circle(pos, {radius: 0.8, fill: 'yellow', opacity: 0.06});
+                visual.circle(pos, {radius: 0.9, stroke: strokeColor});
+                visual.text(`Storage: ${energy}/${capacity}`, pos.x, pos.y - 1.1, {align: 'center', color: 'white', font: 'bold 9px Arial'});
+
+                // progress bar
+                const barWidth = 1.6;
+                const barHeight = 0.22;
+                const barX = pos.x - barWidth / 2;
+                const barY = pos.y - 0.8;
+                visual.rect(barX, barY, barWidth, barHeight, {fill: 'black', opacity: 0.5});
+                visual.rect(barX, barY, barWidth * pct, barHeight, {fill: strokeColor, opacity: 0.9});
+            }
+        } catch (e) {}
         for(const site of this.colony.memory.plannedConstructionSites ?? []) {
             // indicate the type of structure at each location using color coding
             const colorMap: Record<BuildableStructureConstant, string> = {

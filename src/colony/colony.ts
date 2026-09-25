@@ -1,4 +1,4 @@
-import {getAllTaskMemory, getColonyMemory,getCreepMemory, getScoutedRoomMemory, getTaskMemory, updateCachedRoomDataForRoom} from "core/memory";
+import {addHostileRoom, removeHostileRoom, getAllTaskMemory, getColonyMemory,getCreepMemory, getScoutedRoomMemory, getTaskMemory}from "core/memory";
 
 import "utils/roomPosition";
 import "utils/move";
@@ -97,6 +97,7 @@ export class Colony {
         this.setFocusOnUpgrade();
         this.setFillerContainerIds();
         this.setUpgradeContainerIds();
+        this.updateStorage();
         // this.updateStorage();
 
 
@@ -230,7 +231,7 @@ export class Colony {
         }
 
 
-        if(Game.time%30==0){
+        if(Game.time%200==0){
             this.updateHaulerPartsNeeded();
             this.updateRepairTargets();
             this.updateWallRepairThreshold();
@@ -252,13 +253,59 @@ export class Colony {
 
     }
 
+    updateStorage(): void {
+
+        // Always prefer a real Storage structure when present (auto-switch).
+        const storages = this.room.find(FIND_STRUCTURES, { filter: s => s.structureType === STRUCTURE_STORAGE }) as StructureStorage[];
+        if (storages && storages.length > 0) {
+            this.memory.storageId = storages[0].id;
+            this.storage = storages[0];
+            return;
+        }
+
+        // If an explicit storageId is set and the object exists, use it (container or storage)
+        if (this.memory.storageId) {
+            const obj = Game.getObjectById(this.memory.storageId as Id<any>);
+            if (obj && (obj.structureType === STRUCTURE_STORAGE || obj.structureType === STRUCTURE_CONTAINER)) {
+                this.storage = obj as StructureStorage;
+                return;
+            }
+        }
+
+        // Fallback: find a container that is NOT adjacent to any source or mineral
+        const containers = this.room.find(FIND_STRUCTURES, { filter: s => s.structureType === STRUCTURE_CONTAINER }) as StructureContainer[];
+        for (const c of containers) {
+            const nearbyResources = c.pos.findInRange(FIND_SOURCES, 1).length + c.pos.findInRange(FIND_MINERALS, 1).length;
+            if (nearbyResources === 0) {
+                // treat this container as central storage
+                this.memory.storageId = c.id;
+                this.storage = c as unknown as StructureStorage;
+                return;
+            }
+        }
+
+        // nothing found
+        this.storage = undefined;
+        this.memory.storageId = this.memory.storageId ?? undefined;
+    }
+
     run() {
+        // periodically attempt to detect a central storage/container until a real Storage exists
+        const cpuStart = Game.cpu.getUsed();
+        console.log(`Running colony ${this.room.name}, cpu: ${cpuStart}`);
+
+        // if (!this.storage && Game.time % 10 === 0) {
+        //     this.updateStorage();
+        // }
         // console.log(`Hauler parts needed for ${this.room.name}: ${this.memory.haulerPartsNeeded}`);
         // Assign tasks to creeps
         for(const creep of this.creeps) {
             if(getCreepMemory(creep.name).taskId) {
+                // console.log(`Running task for creep ${creep.name} in colony ${this.room.name}, cpu: ${Game.cpu.getUsed()}`);
                 this.runTask(creep);
+
             } else{
+                // console.log(`Creep ${creep.name} in colony ${this.room.name} is not assigned a task, cpu: ${Game.cpu.getUsed()}`);
                 // console.log(`Colony ${this.room.name} has a creep ${creep.name} that is not assigned a task`);
                 //if sitting next to a source then move away from it
                 for(let source of this.sources){
@@ -268,6 +315,7 @@ export class Colony {
                         // console.log(`Colony ${this.room.name} has a creep ${creep.name} that is sitting next to a source`);
                         //find the nearest path that takes the creep more than 1 tile away from the source
                         let path = PathFinder.search(creep.pos, {pos: source.pos, range:2}, {flee:true}).path;
+                        console.log(`Creep ${creep.name} in colony ${this.room.name} is moving away from source, cpu: ${Game.cpu.getUsed()}`);
                         // console.log(path);
                         creep.moveByPath(path);
                         break;
@@ -276,8 +324,25 @@ export class Colony {
             }
         }
 
+        const cpuAfterAssign = Game.cpu.getUsed();
+
         this.runTowers();
-        this.colonyVisualizer?.run();
+        const cpuAfterTowers = Game.cpu.getUsed();
+
+        if(Game.cpu.bucket > 2000){
+            this.colonyVisualizer?.run();
+        }
+        const cpuAfterVisualizer = Game.cpu.getUsed();
+
+        // store a short history of CPU usage for this colony
+        try {
+            this.memory.cpuHistory ??= [];
+            const total = cpuAfterVisualizer - cpuStart;
+            this.memory.cpuHistory.push({ t: Game.time, total, assign: Math.max(0, cpuAfterAssign - cpuStart), towers: Math.max(0, cpuAfterTowers - cpuAfterAssign), visualizer: Math.max(0, cpuAfterVisualizer - cpuAfterTowers) });
+            // keep up to CPU_HISTORY_MAX entries
+            const CPU_HISTORY_MAX = 1000;
+            if (this.memory.cpuHistory.length > CPU_HISTORY_MAX) this.memory.cpuHistory.shift();
+        } catch (e) {}
     }
 
     updateWallRepairThreshold():void{
@@ -366,19 +431,20 @@ export class Colony {
                 haulTarget = this.spawns[0].pos;
             }
             haulTarget??= new RoomPosition(25,25,this.room.name);
-            const pathToSource = PathFinder.search(haulTarget, source.pos).path;
-            const timeToSource = pathToSource.length;
-            // calculate the time taken to return from the source given the 2:1 carry/move ratio
-            // takes 2 ticks to traverse plain, 1 tick to traverse road,
-            const timeFromSource = pathToSource.reduce((acc, pos) => {
-                const terrain = Game.map.getRoomTerrain(pos.roomName).get(pos.x, pos.y);
-                if (terrain === TERRAIN_MASK_SWAMP) {
-                    return acc + 10;
-                } else {
-                    return acc + 2;
-                }
-            }, 0);
-            const roundTripTime = timeToSource + timeFromSource;
+            // const pathToSource = PathFinder.search(haulTarget, source.pos).path;
+            // const timeToSource = pathToSource.length;
+            // // calculate the time taken to return from the source given the 2:1 carry/move ratio
+            // // takes 2 ticks to traverse plain, 1 tick to traverse road,
+            // const timeFromSource = pathToSource.reduce((acc, pos) => {
+            //     const terrain = Game.map.getRoomTerrain(pos.roomName).get(pos.x, pos.y);
+            //     if (terrain === TERRAIN_MASK_SWAMP) {
+            //         return acc + 10;
+            //     } else {
+            //         return acc + 2;
+            //     }
+            // }, 0);
+            const timetosource = haulTarget.getRangeTo(source.pos);
+            const roundTripTime = timetosource * 2 * 2;
             // the number of carry parts needed is minerparts*2*roundTripTime
             haulerPartsNeeded += existingMinerParts * 2 * roundTripTime / 50;
         }
@@ -410,19 +476,21 @@ export class Colony {
                 haulTarget = this.spawns[0].pos;
             }
             haulTarget??= new RoomPosition(25,25,this.room.name);
-            const pathToSource = PathFinder.search(haulTarget, mineral.pos).path;
-            const timeToSource = pathToSource.length;
-            // calculate the time taken to return from the source given the 2:1 carry/move ratio
-            // takes 2 ticks to traverse plain, 1 tick to traverse road,
-            const timeFromSource = pathToSource.reduce((acc, pos) => {
-                const terrain = Game.map.getRoomTerrain(pos.roomName).get(pos.x, pos.y);
-                if (terrain === TERRAIN_MASK_SWAMP) {
-                    return acc + 10;
-                } else {
-                    return acc + 2;
-                }
-            }, 0);
-            const roundTripTime = timeToSource + timeFromSource;
+            // const pathToSource = PathFinder.search(haulTarget, mineral.pos).path;
+            // const timeToSource = pathToSource.length;
+            // // calculate the time taken to return from the source given the 2:1 carry/move ratio
+            // // takes 2 ticks to traverse plain, 1 tick to traverse road,
+            // const timeFromSource = pathToSource.reduce((acc, pos) => {
+            //     const terrain = Game.map.getRoomTerrain(pos.roomName).get(pos.x, pos.y);
+            //     if (terrain === TERRAIN_MASK_SWAMP) {
+            //         return acc + 10;
+            //     } else {
+            //         return acc + 2;
+            //     }
+            // }, 0);
+            // const roundTripTime = timeToSource + timeFromSource;
+            const timetosource = haulTarget.getRangeTo(mineral.pos);
+            const roundTripTime = timetosource * 2 * 1.75;
             // the number of carry parts needed is minerparts*2*roundTripTime
             haulerPartsNeeded += 0.2 * existingMinerParts * roundTripTime / 50;
         }
@@ -644,7 +712,53 @@ export class Colony {
                     return;
                 }
             }
+            if(role == "harasser"){
+                if(this.room.controller && this.room.controller.level < 5){
+                    console.log(`Cannot spawn harasser in ${this.room.name} because RCL is below 5`);
+                    return;
+                }
+                const body = this.harasserBodyParts();
+                const memory: CreepMemory = {role, colony: this.room.name};
+                const result = spawn.spawnCreep(body,name,{memory});
+                if(result === OK) {
+                    console.log(`Spawning new harasser in ${this.room.name}`);
+                    if (spawnIndex < 0) {
+                        console.log(`Couldn't find spawn index`);
+                    } else {
+                        this.spawnsAvailableForSpawning.splice(spawnIndex, 1);
+                    }
+                    return;
+                }
+            }
+            if(role == "dismantler"){
+                if(this.room.controller && this.room.controller.level < 5){
+                    console.log(`Cannot spawn dismantler in ${this.room.name} because RCL is below 5`);
+                    return;
+                }
+                const body = this.dismantlerBodyParts();
+                const memory: CreepMemory = {role, colony: this.room.name};
+                const result = spawn.spawnCreep(body,name,{memory});
+                if(result === OK) {
+                    console.log(`Spawning new dismantler in ${this.room.name}`);
+                    if (spawnIndex < 0) {
+                        console.log(`Couldn't find spawn index`);
+                    } else {
+                        this.spawnsAvailableForSpawning.splice(spawnIndex, 1);
+                    }
+                    return;
+                }
+            }
         }
+    }
+
+    dismantlerBodyParts(): BodyPartConstant[] {
+        const numTough = 3;
+        const numAttack = 10;
+        const numMove = 13;
+
+        return Array(numTough).fill(TOUGH)
+            .concat(Array(numMove).fill(MOVE))
+            .concat(Array(numAttack).fill(ATTACK));
     }
 
     duoAttackerBodyParts(): BodyPartConstant[] {
@@ -696,6 +810,17 @@ export class Colony {
         }
         return body;
     }
+
+    harasserBodyParts(): BodyPartConstant[] {
+        const numTough = 10;
+        const numHeal = 4;
+        const numMove = 14;
+
+        return Array(numTough).fill(TOUGH)
+            .concat(Array(numMove).fill(MOVE))
+            .concat(Array(numHeal).fill(HEAL));
+    }
+
     workerBodyParts(): BodyPartConstant[] {
         if (this.room.energyAvailable<350){
             return [WORK, CARRY, MOVE, MOVE];
@@ -820,10 +945,58 @@ export class Colony {
     getUpgraderNeed(): boolean {
         const upgraders = this.creeps.filter(c => c.memory.role === 'upgrader');
         if (this.storage !== undefined && this.storage !== null){
-            const targetUpgraders = Math.min(Math.max(this.storage.store[RESOURCE_ENERGY] / 40e3, 1), 10);
+            const targetUpgraders = Math.min(Math.max(this.storage.store[RESOURCE_ENERGY] / 15e3, 1), 10);
+            if (this.storage.structureType !== STRUCTURE_STORAGE) {
+                // check if all containers in the room are >90% capacity
+                const containers = this.room.find(FIND_STRUCTURES, { filter: s => s.structureType === STRUCTURE_CONTAINER }) as StructureContainer[];
+                const allContainersFull = containers.every(c => c.store.getFreeCapacity(RESOURCE_ENERGY) / c.store.getCapacity(RESOURCE_ENERGY) < 0.1);
+                if (allContainersFull) {
+                    return true;
+                }
+            }
             return targetUpgraders > upgraders.length;
         }
         else{
+            // approximate the number of upgraders based on the number of work parts on miners and the number
+            // of spaces between the source and the controller. miner work parts generate 1 energy per tick
+            // upgraders use 1 energy every tick they are at the controller, which for 50 ticks is two legs plus
+            // of travel time, each square takes roughly 2 ticks to traverse
+            // very rough approximation
+            // also, multiply the linear range between the cells by 1.25 to account for some path deviation
+            // the linear range should be the average of each of the two sources
+            let avSourceDistance = undefined;
+            const sourceIds = this.memory.sourceIds;
+            if(sourceIds && sourceIds.length > 0) {
+                const sourceDistances = sourceIds.map(id => {
+                    const source = Game.getObjectById(id) as Source | null;
+                    if(!source) return 0;
+                    return this.room.controller ? this.room.controller.pos.getRangeTo(source.pos) : 0;
+                });
+                avSourceDistance = sourceDistances.reduce((a,b) => a+b, 0) / sourceDistances.length;
+            }
+            // get number of miner work parts in the room
+            // cap the number at five per source
+
+            const minerWorkParts = this.creeps.filter(c => c.memory.role === 'miner').reduce((sum, c) => sum + c.getActiveBodyparts(WORK), 0);
+            if (minerWorkParts && avSourceDistance) {
+                // an upgrader part uses 50 energy in 50+2*avSourceDistance*1.25*2 ticks
+                // which means it uses 50/(50+2*avSourceDistance*1.25*2) energy per tick on average
+                const energyPerTickPerUpgraderPart = 50 / (50 + 2 * avSourceDistance );
+                console.log(`Colony ${this.room.name} average source distance: ${avSourceDistance}, energy per tick per upgrader part: ${energyPerTickPerUpgraderPart}`);
+                // check the number of work parts on upgraders
+                const upgraderWorkParts = this.creeps.filter(c => c.memory.role === 'upgrader').reduce((sum, c) => sum + c.getActiveBodyparts(WORK), 0);
+                console.log(`Colony ${this.room.name} upgrader work parts: ${upgraderWorkParts}`);
+                const energyPerTickForAllUpgraders = upgraderWorkParts * energyPerTickPerUpgraderPart;
+                // if the energy per tick for all upgraders is less than the energy available per tick from miners, we might need more upgraders
+                const energyPerTickFromMiners = minerWorkParts-1.5; // assuming each miner work part generates 1 energy per tick
+                console.log(`Colony ${this.room.name} might need more upgraders: energyPerTickForAllUpgraders=${energyPerTickForAllUpgraders}, energyPerTickFromMiners=${energyPerTickFromMiners}`);
+                if (energyPerTickForAllUpgraders < energyPerTickFromMiners) {
+                    // logic to determine if more upgraders are needed
+
+                    return true;
+                }
+
+            }
             return upgraders.length < 5 && this.room.controller !== undefined;
         }
     }
@@ -857,6 +1030,18 @@ export class Colony {
         return remoteMiners.length < remoteMiningTasks.length;
     }
 
+    getHarasserNeed(): boolean {
+        const harassTasks = getAllTaskMemory().filter(t => t.type === `HARASS_TOWER` && t.status !== `DONE` && t.colony === this.room.name);
+        const harassers = this.creeps.filter(c => c.memory.role === `harasser`);
+        return harassers.length < harassTasks.length;
+    }
+
+    getDismantlerNeed(): boolean {
+        const dismantleTasks = getAllTaskMemory().filter(t => t.type === `DISMANTLE` && t.status !== `DONE` && t.colony === this.room.name);
+        const dismantlers = this.creeps.filter(c => c.memory.role === `dismantler`);
+        return dismantlers.length < dismantleTasks.length;
+    }
+
     getPorterNeed(): boolean {
         /**
          * checks if a 'porter' needs to be spawned to move energy from storage to the filler and upgrader containers
@@ -871,11 +1056,76 @@ export class Colony {
     }
 
     getRemoteHaulerNeed(): boolean {
-        // need to improve this to check the number of hauler parts needed
-        // for now, just check if there are less than 3 remote haulers per remote mining task
-        const remoteMiningTasks = getAllTaskMemory().filter(t=>t.type === `REMOTE_MINING` && t.status !== `DONE` && t.colony === this.room.name);
-        const remoteHaulers = this.creeps.filter(c=>c.memory.role === 'remote_hauler');
-        return remoteHaulers.length < remoteMiningTasks.length;
+        // Estimate required remote haulers based on mining output and travel time.
+        // Approach:
+        // - For each REMOTE_MINING task, estimate miner work parts (from assigned miner or default)
+        // - Compute round-trip path length from storage/spawn to remote source and convert to travel ticks
+        // - Estimate energy produced per tick and required carry parts to transport that energy
+        // - Convert required carry parts into number of hauler creeps (using haulerBodyParts carry capacity)
+        // - Spawn if existing remote_hauler count < estimated required (with a conservative cap)
+
+        const remoteMiningTasks = getAllTaskMemory().filter(t => t.type === `REMOTE_MINING` && t.status !== `DONE` && t.colony === this.room.name);
+        if (remoteMiningTasks.length === 0) return false;
+
+        // helper: how many CARRY parts one hauler body provides in current room energy context
+        const exampleHaulerBody = this.haulerBodyParts();
+        const carryPerHauler = exampleHaulerBody.filter(p => p === CARRY).length || 1; // guard
+
+        let totalCarryPartsNeeded = 0;
+
+        for (const task of remoteMiningTasks) {
+            // estimate miner work parts: if a remote miner is assigned, use its WORK parts, else assume 3
+            let minerWorkParts = 3;
+            if (task.assignedCreep) {
+                const assigned = Game.creeps[task.assignedCreep];
+                if (assigned) minerWorkParts = Math.max(1, assigned.body.filter(b => b.type === WORK).length);
+            }
+
+            // estimate energy extracted per tick = minerWorkParts (1 energy per WORK per tick for mines)
+            const energyPerTick = minerWorkParts;
+
+            // find a representative haul target (prefer storage, else first spawn)
+            let haulTargetPos: RoomPosition | undefined = this.storage?.pos;
+            if (!haulTargetPos && this.spawns.length > 0) haulTargetPos = this.spawns[0].pos;
+            if (!haulTargetPos) haulTargetPos = new RoomPosition(25, 25, this.room.name);
+
+            // get the source position (targetId may be id of Source or object)
+            let sourcePos: RoomPosition | null = null;
+            try {
+                const srcObj = Game.getObjectById(task.targetId as Id<any>);
+                if (srcObj && (srcObj.pos)) sourcePos = (srcObj.pos as RoomPosition);
+            } catch (e) {}
+            if (!sourcePos && typeof task.targetId === 'object' && (task as any).targetId.pos) {
+                sourcePos = (task as any).targetId.pos as RoomPosition;
+            }
+            if (!sourcePos) continue;
+
+            // Use PathFinder.search but limit CPU by using simple straight line length when across rooms @todo
+            const path = PathFinder.search(haulTargetPos, { pos: sourcePos, range: 1 }).path;
+            // need a method to calculate the straight line method between points which works intraroom
+            const roundTripTicks = Math.max(1, path.length * 3);
+
+            // total energy produced per round trip
+            const energyPerRoundTrip = energyPerTick * roundTripTicks;
+
+            // required carry parts to move that energy (each CARRY holds 50 energy)
+            const carryPartsForThisTask = Math.ceil(energyPerRoundTrip / 50);
+
+            // Add a small buffer (25%) to account for inefficiencies
+            totalCarryPartsNeeded += Math.ceil(carryPartsForThisTask * 1.25);
+        }
+
+        // Convert required carry parts to hauler count
+        const estimatedHaulers = Math.ceil(totalCarryPartsNeeded / carryPerHauler);
+
+        // Conservative caps: don't spawn more than 4 remote haulers per colony
+        const maxRemoteHaulers = 5;
+        const desiredHaulers = Math.min(estimatedHaulers, maxRemoteHaulers);
+
+        const remoteHaulers = this.creeps.filter(c => c.memory.role === 'remote_hauler');
+
+        // If there are fewer haulers than desired, return true to spawn one
+        return remoteHaulers.length < desiredHaulers;
     }
 
     getHaulerNeed(): boolean {
@@ -938,6 +1188,9 @@ export class Colony {
     }
 
     runTask(creep: Creep) {
+        // @todo: add a 'harass' task which targets an enemy room with something that goes in, takes tower damage for a hit, recovers back to the
+        // previous room it was in to heal, then when back to full health re-enters the room
+
         const taskId = getCreepMemory(creep.name).taskId;
         if (!taskId) return;
 
@@ -974,43 +1227,60 @@ export class Colony {
             case 'UPGRADE':
                 // if there is an upgrade container in the room, pickup from there and upgrade similar to the fill task
                 // console.log(this.upgradeContainers)
-                if (this.upgradeContainers.length>0){
+                if (this.upgradeContainers.length > 0) {
+                    // mark working when full
                     if (creep.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
-                        // console.log(`Creep ${creep.name} is full of energy, switching to working`);
-                        // mark the creep as working
                         creep.memory.working = true;
                     }
-                    //if the creep energy store is empty then change to not working
+
+                    // If creep is working, perform upgrade
+                    if (creep.memory.working) {
+                        if (creep.upgradeController(target as StructureController) === ERR_NOT_IN_RANGE) {
+                            creep.betterMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}, reusePath: 10});
+                        }
+                        break;
+                    }
+
+                    // Not working and empty: try to withdraw from an upgrader container first
                     if (creep.store[RESOURCE_ENERGY] === 0) {
+                        const container = this.upgradeContainers.find(s => s.store[RESOURCE_ENERGY] > 0);
+                        if (container) {
+                            if (creep.withdraw(container, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+                                creep.betterMoveTo(container, {visualizePathStyle: {stroke: '#ffffff'}, reusePath: 10});
+                            }
+                            break;
+                        }
+
+                        // Fallback: if central storage has energy, withdraw from it
+                        if (this.storage && this.storage.store[RESOURCE_ENERGY] > 0) {
+                            if (creep.withdraw(this.storage, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+                                creep.betterMoveTo(this.storage, {visualizePathStyle: {stroke: '#ffffff'}, reusePath: 10});
+                            }
+                            break;
+                        }
+
+                        // Nothing to withdraw -> mark task done
                         task.status = `DONE`;
                         delete creep.memory.taskId;
                         creep.memory.working = false;
                         break;
                     }
-                    // console.log(creep.memory.working);
-                    if(creep.memory.working){
-                        // upgrade the controller, if not in range move to it
-                        // console.log(`Creep ${creep.name} is upgrading the controller`);
-                        if (creep.upgradeController(target as StructureController) === ERR_NOT_IN_RANGE) {
-                            creep.betterMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
-                        }
-                    }
-                    else {
-                    // filter the list of containers to ones with energy
-                        const container = this.upgradeContainers.filter(s=>s.store[RESOURCE_ENERGY] > 0)[0];
-                        if (creep.withdraw(container, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-                            creep.betterMoveTo(container, {visualizePathStyle: {stroke: '#ffffff'}});
-                        }
-                    }
-                } else{
+                } else {
+                    // No upgrader containers: attempt to withdraw from central storage before giving up
                     if (creep.store[RESOURCE_ENERGY] === 0) {
+                        if (this.storage && this.storage.store[RESOURCE_ENERGY] > 0) {
+                            if (creep.withdraw(this.storage, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
+                                creep.betterMoveTo(this.storage, {visualizePathStyle: {stroke: '#ffffff'}, reusePath: 10});
+                            }
+                            break;
+                        }
                         task.status = `DONE`;
                         delete creep.memory.taskId;
                         break;
                     }
-                    // console.log(`Creep ${creep.name} is upgrading the controller`);
+
                     if (creep.upgradeController(target as StructureController) === ERR_NOT_IN_RANGE) {
-                        creep.betterMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+                        creep.betterMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}, reusePath: 10});
                     }
                     break;
                 }
@@ -1026,8 +1296,9 @@ export class Colony {
                     delete creep.memory.taskId;
                     break;
                 }
+
                 if (creep.build(target as ConstructionSite) === ERR_NOT_IN_RANGE) {
-                    creep.betterMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+                    creep.betterMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}, reusePath: 10});
                 }
                 break;
             case "REPAIR":
@@ -1047,7 +1318,7 @@ export class Colony {
                     break;
                 }
                 if (creep.repair(target) === ERR_NOT_IN_RANGE) {
-                    creep.betterMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+                    creep.betterMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}, reusePath: 10});
                 }
                 break;
             case 'HAUL':
@@ -1085,15 +1356,15 @@ export class Colony {
                         break;
                     }
                     if (creep.transfer(target as AnyStructure, task.resourceType) === ERR_NOT_IN_RANGE) {
-                        creep.betterMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+                        creep.betterMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}, reusePath: 10});
                     }
                 } else {
                     if (creep.transfer(target as AnyStructure, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-                        creep.betterMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+                        creep.betterMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}, reusePath: 10});
                     }
                     for(const resourceType of Object.keys(creep.store) as ResourceConstant[]){
                     if(creep.transfer(target as AnyStructure, resourceType) === ERR_NOT_IN_RANGE) {
-                        creep.betterMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}});
+                        creep.betterMoveTo(target, {visualizePathStyle: {stroke: '#ffffff'}, reusePath: 10});
                     }
                 }
 
@@ -1105,22 +1376,41 @@ export class Colony {
                 //find the source container next to the source
                 // check if there are source containers listed in the room memory
                 let sourceContainer = undefined;
-                if(this.sourceContainers === undefined || this.memory.mineralContainers === undefined){
-                    sourceContainer = this.room.find(FIND_STRUCTURES, {
-                        filter: (s) => s.structureType === STRUCTURE_CONTAINER && s.pos.isNearTo(target)
-                    })[0];
-                } else{
-                    // convert the mineralContainerIds to objects
-                    let mineralContainers = this.memory.mineralContainers.map(id => Game.getObjectById(id)).filter(c => c !== null) as StructureContainer[];
-                    let mineralAndSourceContainers = this.sourceContainers.concat(mineralContainers);
-                    sourceContainer = mineralAndSourceContainers.find(c => c.pos.isNearTo(target));
-                }
-                if(sourceContainer == undefined) break;
+                let targetPos = undefined;
+                if(this.memory.storageId !== undefined && this.room.energyCapacityAvailable > 550){
+                    if(this.sourceContainers === undefined || this.memory.mineralContainers === undefined){
+                        sourceContainer = this.room.find(FIND_STRUCTURES, {
+                            filter: (s) => s.structureType === STRUCTURE_CONTAINER && s.pos.isNearTo(target)
+                        })[0];
+                        targetPos = sourceContainer?.pos;
+                    } else{
+                        // convert the mineralContainerIds to objects
+                        let mineralContainers = this.memory.mineralContainers.map(id => Game.getObjectById(id)).filter(c => c !== null) as StructureContainer[];
+                        let mineralAndSourceContainers = this.sourceContainers.concat(mineralContainers);
+                        sourceContainer = mineralAndSourceContainers.find(c => c.pos.isNearTo(target));
+                        targetPos = sourceContainer?.pos;
 
-                if(!creep.pos.isEqualTo(sourceContainer.pos)) {
-                    creep.betterMoveTo(sourceContainer.pos);
-                }else{
+                    }
+                }
+                if(sourceContainer === undefined){
+                    // find a free tile next to the source
+                    const freeTiles = target.pos.getFreeTiles();
+                    // console.log(`Free tiles next to source ${target.id}: ${JSON.stringify(freeTiles)}`);
+                    if(freeTiles.length > 0) {
+                        targetPos = new RoomPosition(freeTiles[0].x, freeTiles[0].y, target.room.name);
+                    }
+                    // console.log(`No source container found for source ${target.id}, using free tile at ${targetPos}`);
+                };
+
+                if (!sourceContainer && creep.pos.inRangeTo(target, 1)) {
                     creep.harvest(target as Source);
+                }
+                else{
+                    if(targetPos && !creep.pos.isEqualTo(targetPos)) {
+                        creep.betterMoveTo(targetPos, {visualizePathStyle: {stroke: '#f12345'}, reusePath: 10});
+                    }else{
+                        creep.harvest(target as Source);
+                    }
                 }
                 // if (creep.harvest(target as Source) === ERR_NOT_IN_RANGE) {
                 //     creep.safeMoveTo(target, {reusePath:15, visualizePathStyle: {stroke: '#ffffff'}});
@@ -1213,8 +1503,11 @@ export class Colony {
                 }
                 break;
             case `SCOUT`:
+                console.log(`Creep ${creep.name} in colony ${this.room.name} is starting SCOUT task, cpu: ${Game.cpu.getUsed()}`);
                 if(creep.room.name !== task.targetRoom || !creep.pos.isInsideRoom()) {
-                    creep.safeMoveTo(new RoomPosition(25, 25, task.targetRoom??creep.room.name), {visualizePathStyle: {stroke: '#ffffff'}});
+
+                    creep.moveTo(new RoomPosition(25, 25, task.targetRoom??creep.room.name), {visualizePathStyle: {stroke: '#ffffff'}, reusePath:50});
+                    console.log(`Creep ${creep.name} in colony ${this.room.name} and room ${creep.room.name} is moving towards target room ${task.targetRoom}, cpu: ${Game.cpu.getUsed()}`);
                 }
                 else {
                     if(task.targetRoom!== undefined){
@@ -1227,14 +1520,24 @@ export class Colony {
                                     if(task.role !==  `visibility`) {
                                         delete creep.memory.taskId;
                                         task.status = `DONE`;
+                                        break;
                                     }
-                                    break;
                                 }
                             }
                         }
                     }
+                    // For visibility scouts we must always refresh the cached room data so
+                    // that controller/reservation info is captured.
+                    if(task.role === `visibility`) {
+                        this.updateCachedRoomDataForRoom(task.targetRoom);
+                        delete creep.memory.taskId;
+                        task.status = `DONE`;
+                        break;
+                    }
+
+                    // Non-visibility scouts use the existing behaviour (refresh and finish)
                     if(task.role!==`visibility`){
-                        updateCachedRoomDataForRoom(task.targetRoom);
+                        this.updateCachedRoomDataForRoom(task.targetRoom);
                         delete creep.memory.taskId;
                         task.status = `DONE`;
                     }
@@ -1253,7 +1556,7 @@ export class Colony {
                     // console.log(creep.pos.isInsideRoom());
                     if(creep.room.name != task.targetRoom || !creep.pos.isInsideRoom()){
                         // console.log(`Creep at position ${creep.pos} to claim room ${task.targetRoom}`);
-                        creep.safeMoveTo(new RoomPosition(25, 25, task.targetRoom), {visualizePathStyle: {stroke: '#ffffff'}});
+                        creep.safeMoveTo(new RoomPosition(25, 25, task.targetRoom), {visualizePathStyle: {stroke: '#ffffff'}, reusePath: 50});
                     }
                     if (creep.claimController(Game.rooms[task.targetRoom]?.controller as StructureController) === ERR_NOT_IN_RANGE) {
                         creep.safeMoveTo(Game.rooms[task.targetRoom]?.controller as StructureController, {visualizePathStyle: {stroke: '#ffffff'}});
@@ -1358,7 +1661,7 @@ export class Colony {
 
                     // if we are not in the target room then move into it
                     if(creep.room.name !== task.targetRoom || !creep.pos.isInsideRoom()) {
-                        creep.safeMoveTo(new RoomPosition(25, 25, task.targetRoom??creep.room.name), {visualizePathStyle: {stroke: '#ff0000'}});
+                        creep.betterMoveTo(new RoomPosition(25, 25, task.targetRoom??creep.room.name), {visualizePathStyle: {stroke: '#ff0000'}});
                         break;
                     }
                     if(task.targetId === this.spawns[0].id) {
@@ -1374,14 +1677,13 @@ export class Colony {
                     let attackTarget = Game.getObjectById(task.targetId);
                     // if we are near the target then attack it
                     if(creep.attack(attackTarget as Creep | Structure) === ERR_NOT_IN_RANGE) {
-                        creep.safeMoveTo(attackTarget.pos, {visualizePathStyle: {stroke: '#ff0000'}});
+                        creep.betterMoveTo(attackTarget.pos, {visualizePathStyle: {stroke: '#ff0000'}, reusePath: 30});
                     }
                     // if the target is dead then the task is done
                     if(target === null){
                         const bestTarget = creep.pos.findClosestByRange(FIND_HOSTILE_CREEPS);
                         if(bestTarget == null){
-                            const creepTarget = creep.pos.findClosestByRange(FIND_HOSTILE_STRUCTURES);
-                            if(creepTarget == null){
+                            const creepTarget = creep.pos.findClosestByRange(FIND_HOSTILE_STRUCTURES, { filter: c => c.structureType !== STRUCTURE_CONTROLLER });                            if(creepTarget == null){
                                 // if there are no hostile creeps then the task is done
                                 delete creep.memory.taskId;
                                 task.status = `DONE`;
@@ -1394,7 +1696,7 @@ export class Colony {
                     if((target as Creep | Structure).hits === 0 || (target as Creep | Structure).hits === undefined) {
                         const bestTarget = creep.pos.findClosestByRange(FIND_HOSTILE_CREEPS);
                         if(bestTarget == null){
-                            const creepTarget = creep.pos.findClosestByRange(FIND_HOSTILE_STRUCTURES);
+                            const creepTarget = creep.pos.findClosestByRange(FIND_HOSTILE_STRUCTURES, { filter: c => c.structureType !== STRUCTURE_CONTROLLER });
                             if(creepTarget == null){
                                 // if there are no hostile creeps then the task is done
                                 delete creep.memory.taskId;
@@ -1412,7 +1714,7 @@ export class Colony {
                     if(!attacker) break;
                     // if the healer isn't near the attacker then move towards it
                     if(creep.pos.getRangeTo(attacker) > 0) {
-                        creep.safeMoveTo(attacker.pos, {visualizePathStyle: {stroke: '#00ff00'}});
+                        creep.betterMoveTo(attacker.pos, {visualizePathStyle: {stroke: '#00ff00'}, reusePath: 30});
                     }
                     // heal the attacker
                     if(creep.pos.getRangeTo(attacker) === 1) {
@@ -1427,12 +1729,40 @@ export class Colony {
                     }
                 }
                 break;
+            case `HARASS_TOWER`:
+                // aim is to move to the hostile room, enter the room for a tick, and then retreat back to safety
+                if(creep.hits == creep.hitsMax) {
+                    // check if we are in the hostile room
+                    console.log(`Creep ${creep.name} in colony ${this.room.name} is checking if it is in the hostile room ${task.targetRoom}`);
+                    if(creep.room.name !== task.targetRoom || !creep.pos.isInsideRoom()) {
+                        console.log(`Creep ${creep.name} is not in the hostile room ${task.targetRoom}, moving towards it.`);
+                        creep.betterMoveTo(new RoomPosition(25, 25, task.targetRoom??creep.room.name), {visualizePathStyle: {stroke: '#ff0000'}, reusePath: 30});
+                    }
+                }
+                else {
+                    // then we need to retreat via the nearest exit
+                    if(creep.room.name == task.targetRoom){
+                        const exit = creep.pos.findClosestByRange(FIND_EXIT);
+                        if(exit) {
+                            creep.betterMoveTo(exit, {visualizePathStyle: {stroke: '#ff0000'}, reusePath: 30});
+                        }
+                    } else {
+                        // we need to move in inside whichever room we are now in
+                        if(!creep.pos.isInsideRoom()){
+                            creep.betterMoveTo(new RoomPosition(25, 25, creep.room.name), {visualizePathStyle: {stroke: '#ff0000'}, reusePath: 30});
+                        }
+
+                    }
+
+                }
+                creep.heal(creep);
         }
         // console.log(`Status of task ${task.id}: ${task.status}`);
 
     }
 
     runTowers() {
+        // console.log(`Running towers for colony ${this.room.name}, cpu: ${Game.cpu.getUsed()}`);;
         const towers = this.towers;
         for (const tower of towers) {
             const closestHostile = tower.pos.findClosestByRange(FIND_HOSTILE_CREEPS);
@@ -1440,6 +1770,7 @@ export class Colony {
                 tower.attack(closestHostile);
             }
         }
+        // console.log(`Finished running towers for colony ${this.room.name}, cpu: ${Game.cpu.getUsed()}`);
     }
 
     placeTowerStamp() {
@@ -1521,7 +1852,7 @@ export class Colony {
          */
         if(!this.spawns[0]) return;
         const spawnPos = this.spawns[0].pos;
-        const maxRadius = 25;
+        const maxRadius = 50;
         for(let r = 1; r <= maxRadius; r++) {
             for (let x = -r; x <= r; x++) {
                 for (let y = -r; y <= r; y++) {
@@ -1577,5 +1908,67 @@ export class Colony {
         }
         return false;
     }
+    updateCachedRoomDataForRoom(roomName:string): void{
+        if(!(roomName in Game.rooms)){
+            console.error(`Room ${roomName} is not visible, so cannot be updated`);
+            return;
+        }
+        let controllerObj = undefined;
+        let gameController = Game.rooms[roomName].controller;
+        if(gameController!==undefined){
+            const id = gameController.id;
+            const owner = gameController.owner?.username;
+            const reserved = gameController.reservation?.username;
+            const level = gameController.level;
+            const safeMode = gameController.safeMode;
+
+            controllerObj = {
+                id,
+                owner,
+                reserved,
+                level,
+                safeMode
+            };
+        }
+
+        let cMatrix = new PathFinder.CostMatrix();
+        // create the costMatrix for the given room
+        Game.rooms[roomName].find(FIND_STRUCTURES).forEach(structure => {
+            if (structure.structureType === STRUCTURE_ROAD) {
+                cMatrix.set(structure.pos.x, structure.pos.y, 1);
+            } else if (structure.structureType !== STRUCTURE_CONTAINER && (structure.structureType !== STRUCTURE_RAMPART || !structure.my)) {
+                cMatrix.set(structure.pos.x, structure.pos.y, 255);
+            }
+        });
+
+        let minerals = Game.rooms[roomName].find(FIND_MINERALS).map(mineral => mineral.id);
+        let mineralType = null;
+        if(minerals[0]){
+            mineralType = Game.getObjectById(minerals[0])?.mineralType ?? null;
+        }
+
+        Memory.scoutedRooms[roomName] = {
+            lastScouted: Game.time,
+            sources: Game.rooms[roomName].find(FIND_SOURCES).map(source => source.id),
+            minerals: minerals.length > 0 ? minerals[0] : null,
+            mineralType: mineralType,
+            controller: controllerObj,
+            hostiles: Game.rooms[roomName].find(FIND_HOSTILE_CREEPS).length,
+            hostileStructures: Game.rooms[roomName].find(FIND_HOSTILE_STRUCTURES).map(structure => structure.id),
+            terrainScore: 0,
+            exits: Game.rooms[roomName].findExits(),
+            rCostMatrix: cMatrix.serialize()
+        }
+
+        // determine also if the room is hostile/should be added to hostile rooms
+        const hostiles = Game.rooms[roomName].find(FIND_HOSTILE_CREEPS);
+        const hostileStructures = Game.rooms[roomName].find(FIND_HOSTILE_STRUCTURES).filter(s=>s.structureType==STRUCTURE_TOWER && s.store[RESOURCE_ENERGY]>500);
+
+        if (hostiles.length > 0 && gameController && !gameController.my) {
+            addHostileRoom(roomName);
+        } else {
+            removeHostileRoom(roomName);
+        }
+        }
 
 }

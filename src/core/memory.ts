@@ -27,12 +27,24 @@ export function getHostileRooms(): {roomName:string, lastSeen:number}[] {
 
 export function checkIfHostileRoom(roomName: string): boolean {
     const hostileRooms = getHostileRooms();
-    return hostileRooms.some(room => room.roomName === roomName);
+    if (hostileRooms.length !== 0){
+        // console.log(`[checkIfHostileRoom] Checking if room ${roomName} is hostile using hostileRooms: ${JSON.stringify(hostileRooms)}`);
+        return hostileRooms.some(room => room.roomName === roomName);
+    }
+    return false;
 }
 
 export function addHostileRoom(roomName: string): void {
     // check if the room is already in hostile rooms - if it is then update the most recent tick
     const hostileRooms = getHostileRooms();
+    // check if the room has a controller and the controller is owned by an enemy
+    if(Game.rooms[roomName]?.controller){
+        const controller = Game.rooms[roomName].controller;
+        if(controller && controller.my){
+            // the room is controlled by us, not hostile
+            return;
+        }
+    }
     const existingRoom = hostileRooms.find(room => room.roomName === roomName);
     if (existingRoom) {
         existingRoom.lastSeen = Game.time;
@@ -80,17 +92,17 @@ export function getScoutedRoomMemory(roomName: string): ScoutedRoomMemory | unde
     return Memory.scoutedRooms[roomName];
 }
 
-export function updateCachedRoomData(): void {
-    // get a list of all rooms that we can currently see
-    if(!Memory.scoutedRooms) Memory.scoutedRooms = {};
-    const visibleRooms = Object.keys(Game.rooms);
-    for(const roomName of visibleRooms){
-        if(Object.keys(Memory.colonies).includes(roomName)) continue;
-        updateCachedRoomDataForRoom(roomName);
+// export function updateCachedRoomData(): void {
+//     // get a list of all rooms that we can currently see
+//     if(!Memory.scoutedRooms) Memory.scoutedRooms = {};
+//     const visibleRooms = Object.keys(Game.rooms);
+//     for(const roomName of visibleRooms){
+//         if(Object.keys(Memory.colonies).includes(roomName)) continue;
+//         updateCachedRoomDataForRoom(roomName);
 
-        // also determine if the room is hostile/if it should be added to hostile room
-    }
-}
+//         // also determine if the room is hostile/if it should be added to hostile room
+//     }
+// }
 
 export function getCostMatrixForRoom(roomName: string): CostMatrix | undefined {
     const scoutedRoom = Memory.scoutedRooms[roomName];
@@ -194,67 +206,67 @@ export function getColonyIntents(colonyRoom: string): {[creepName: string]: {fro
     return col.moveIntents as {[creepName: string]: {from: {x:number,y:number,room:string}, to: {x:number,y:number,room:string}, tick: number}};
 }
 
-export function updateCachedRoomDataForRoom(roomName:string): void{
-    if(!(roomName in Game.rooms)){
-        console.error(`Room ${roomName} is not visible, so cannot be updated`);
-        return;
-    }
-    let controllerObj = undefined;
-    let gameController = Game.rooms[roomName].controller;
-    if(gameController!==undefined){
-        const id = gameController.id;
-        const owner = gameController.owner?.username;
-        const reserved = gameController.reservation?.username;
-        const level = gameController.level;
-        const safeMode = gameController.safeMode;
+// export function updateCachedRoomDataForRoom(roomName:string): void{
+//     if(!(roomName in Game.rooms)){
+//         console.error(`Room ${roomName} is not visible, so cannot be updated`);
+//         return;
+//     }
+//     let controllerObj = undefined;
+//     let gameController = Game.rooms[roomName].controller;
+//     if(gameController!==undefined){
+//         const id = gameController.id;
+//         const owner = gameController.owner?.username;
+//         const reserved = gameController.reservation?.username;
+//         const level = gameController.level;
+//         const safeMode = gameController.safeMode;
 
-        controllerObj = {
-            id,
-            owner,
-            reserved,
-            level,
-            safeMode
-        };
-    }
+//         controllerObj = {
+//             id,
+//             owner,
+//             reserved,
+//             level,
+//             safeMode
+//         };
+//     }
 
-    let cMatrix = new PathFinder.CostMatrix();
-    // create the costMatrix for the given room
-    Game.rooms[roomName].find(FIND_STRUCTURES).forEach(structure => {
-        if (structure.structureType === STRUCTURE_ROAD) {
-            cMatrix.set(structure.pos.x, structure.pos.y, 1);
-        } else if (structure.structureType !== STRUCTURE_CONTAINER && (structure.structureType !== STRUCTURE_RAMPART || !structure.my)) {
-            cMatrix.set(structure.pos.x, structure.pos.y, 255);
-        }
-    });
+//     let cMatrix = new PathFinder.CostMatrix();
+//     // create the costMatrix for the given room
+//     Game.rooms[roomName].find(FIND_STRUCTURES).forEach(structure => {
+//         if (structure.structureType === STRUCTURE_ROAD) {
+//             cMatrix.set(structure.pos.x, structure.pos.y, 1);
+//         } else if (structure.structureType !== STRUCTURE_CONTAINER && (structure.structureType !== STRUCTURE_RAMPART || !structure.my)) {
+//             cMatrix.set(structure.pos.x, structure.pos.y, 255);
+//         }
+//     });
 
-    let minerals = Game.rooms[roomName].find(FIND_MINERALS).map(mineral => mineral.id);
-    let mineralType = null;
-    if(minerals[0]){
-        mineralType = Game.getObjectById(minerals[0])?.mineralType ?? null;
-    }
+//     let minerals = Game.rooms[roomName].find(FIND_MINERALS).map(mineral => mineral.id);
+//     let mineralType = null;
+//     if(minerals[0]){
+//         mineralType = Game.getObjectById(minerals[0])?.mineralType ?? null;
+//     }
 
-    Memory.scoutedRooms[roomName] = {
-        lastScouted: Game.time,
-        sources: Game.rooms[roomName].find(FIND_SOURCES).map(source => source.id),
-        minerals: minerals.length > 0 ? minerals[0] : null,
-        mineralType: mineralType,
-        controller: controllerObj,
-        hostiles: Game.rooms[roomName].find(FIND_HOSTILE_CREEPS).length,
-        hostileStructures: Game.rooms[roomName].find(FIND_HOSTILE_STRUCTURES).map(structure => structure.id),
-        terrainScore: 0,
-        exits: Game.rooms[roomName].findExits(),
-        rCostMatrix: cMatrix.serialize()
-    }
+//     Memory.scoutedRooms[roomName] = {
+//         lastScouted: Game.time,
+//         sources: Game.rooms[roomName].find(FIND_SOURCES).map(source => source.id),
+//         minerals: minerals.length > 0 ? minerals[0] : null,
+//         mineralType: mineralType,
+//         controller: controllerObj,
+//         hostiles: Game.rooms[roomName].find(FIND_HOSTILE_CREEPS).length,
+//         hostileStructures: Game.rooms[roomName].find(FIND_HOSTILE_STRUCTURES).map(structure => structure.id),
+//         terrainScore: 0,
+//         exits: Game.rooms[roomName].findExits(),
+//         rCostMatrix: cMatrix.serialize()
+//     }
 
-    // determine also if the room is hostile/should be added to hostile rooms
-    const hostiles = Game.rooms[roomName].find(FIND_HOSTILE_CREEPS);
-    const hostileStructures = Game.rooms[roomName].find(FIND_HOSTILE_STRUCTURES).filter(s=>s.structureType==STRUCTURE_TOWER && s.store[RESOURCE_ENERGY]>500);
+//     // determine also if the room is hostile/should be added to hostile rooms
+//     const hostiles = Game.rooms[roomName].find(FIND_HOSTILE_CREEPS);
+//     const hostileStructures = Game.rooms[roomName].find(FIND_HOSTILE_STRUCTURES).filter(s=>s.structureType==STRUCTURE_TOWER && s.store[RESOURCE_ENERGY]>500);
 
-    if (hostiles.length > 0 && gameController && !gameController.my) {
-        addHostileRoom(roomName);
-    } else {
-        removeHostileRoom(roomName);
-    }
-}
+//     if (hostiles.length > 0 && gameController && !gameController.my) {
+//         addHostileRoom(roomName);
+//     } else {
+//         removeHostileRoom(roomName);
+//     }
+// }
 
 
