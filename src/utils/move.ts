@@ -1,5 +1,5 @@
 import { checkIfHostileRoom, addHostileRoom, getCostMatrixForRoom, getTaskMemory, reserveMove, getMoveReservation, getAllMoveReservations, publishIntent, getColonyIntents } from "core/memory";
-import { drawRoomOverview as drawRoomOverviewVisual } from "utils/movementVisuals";
+// import { drawRoomOverview as drawRoomOverviewVisual } from "utils/movementVisuals";
 
 // Cost to apply to tiles occupied by stationary creeps (walkable but discouraged)
 const OCCUPIED_STATIC_COST = 50;
@@ -1340,13 +1340,4 @@ export function creepIsStationary(creep: Creep, reservations: {[creepName:string
     }
 }
 
-// Expose a helper so visuals/pathfinding can be invoked without running the coordinator
-export function visualizeRoomMovement(roomName: string): void {
-    try {
-        const intents = getColonyIntents(roomName) || {};
-        drawRoomOverviewVisual(roomName, intents as any);
-    } catch (e) {
-        // swallow errors to avoid breaking runtime
-    }
-}
 
